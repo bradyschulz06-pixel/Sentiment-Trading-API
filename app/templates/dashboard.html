@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="topbar">
+  <div>
+    <div class="eyebrow">Northstar Signal Desk</div>
+    <h1>{{ settings.app_name }}</h1>
+    <p class="lead">Large-cap swing trades ranked by trend strength, news tone, and earnings surprise.</p>
+  </div>
+  <div class="actions">
+    <form method="post" action="/run">
+      <button type="submit" class="button primary">Run Fresh Scan</button>
+    </form>
+    <a href="/journal" class="button ghost">Paper Journal</a>
+    <a href="/backtest" class="button ghost">Open Backtester</a>
+    <a href="/walk-forward" class="button ghost">Walk-Forward Lab</a>
+    <a href="/logout" class="button ghost">Log Out</a>
+  </div>
+</header>
+
+{% if message %}
+  <div class="alert success">{{ message }}</div>
+{% endif %}
+{% if settings.has_password_warning %}
+  <div class="alert warning">The default admin password is still active. Set a custom password or password hash before deployment.</div>
+{% endif %}
+{% if broker_error %}
+  <div class="alert danger">Broker sync warning: {{ broker_error }}</div>
+{% endif %}
+
+<section class="hero-grid">
+  <article class="panel hero-panel">
+    <div class="panel-label">Mode</div>
+    <div class="metric-row">
+      <div>
+        <div class="metric">{{ "Paper trading" if settings.trading_configured else "Setup needed" }}</div>
+        <div class="metric-sub">Alpaca paper endpoint is the default broker target.</div>
+      </div>
+      <div class="chip {{ 'active' if settings.auto_trade_enabled else 'muted' }}">{{ "Auto execution on" if settings.auto_trade_enabled else "Manual approval mode" }}</div>
+    </div>
+  </article>
+  <article class="panel">
+    <div class="panel-label">Account</div>
+    {% if account %}
+      <div class="metric">${{ "%.2f"|format(account.equity|float) }}</div>
+      <div class="metric-sub">Buying power: ${{ "%.2f"|format(account.buying_power|float) }}</div>
+    {% else %}
+      <div class="metric">Waiting on keys</div>
+      <div class="metric-sub">Add Alpaca and Alpha Vantage keys to unlock live data.</div>
+    {% endif %}
+  </article>
+  <article class="panel">
+    <div class="panel-label">Last Run</div>
+    {% if latest_run %}
+      <div class="metric">{{ latest_run.status|upper }}</div>
+      <div class="metric-sub">{{ latest_run.completed_at }}</div>
+      <p class="microcopy">{{ latest_run.summary }}</p>
+    {% else %}
+      <div class="metric">No scans yet</div>
+      <div class="metric-sub">Run the engine once to populate signals.</div>
+    {% endif %}
+  </article>
+  <article class="panel">
+    <div class="panel-label">Market Regime</div>
+    {% if latest_regime %}
+      <div class="metric">{{ latest_regime.label.replace('_', ' ')|title }}</div>
+      <div class="metric-sub">{{ latest_regime.summary }}</div>
+      <div class="tiny">
+        {{ latest_regime.benchmark_symbol }} 21d: {{ latest_regime.ret21|pct }}
+        | Breadth 20d: {{ latest_regime.breadth_above_20|pct }}
+        | Breadth 50d: {{ latest_regime.breadth_above_50|pct }}
+      </div>
+    {% else %}
+      <div class="metric">Waiting on scan</div>
+      <div class="metric-sub">Run the engine once to classify the tape.</div>
+    {% endif %}
+  </article>
+  <article class="panel">
+    <div class="panel-label">Risk Model</div>
+    <div class="metric">{{ settings.max_positions }} positions max</div>
+    <div class="metric-sub">{{ (settings.max_position_pct * 100)|round(0) }}% max per trade, {{ (settings.stop_loss_pct * 100)|round(0) }}% stop</div>
+  </article>
+</section>
+
+{% if latest_warnings %}
+<section class="panel">
+  <div class="section-head">
+    <h2>Run Warnings</h2>
+  </div>
+  <div class="warning-list">
+    {% for warning in latest_warnings %}
+      <span class="chip muted">{{ warning }}</span>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="grid-2">
+  <article class="panel">
+    <div class="section-head">
+      <h2>Top Signals</h2>
+      <p>Only long setups above the threshold become buy candidates.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Price</th>
+            <th>Composite</th>
+            <th>Momentum</th>
+            <th>News</th>
+            <th>Earnings</th>
+            <th>Decision</th>
+            <th>Guardrails</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for signal in signals %}
+            <tr>
+              <td>
+                <strong>{{ signal.symbol }}</strong>
+                {% if signal.headline %}
+                  <div class="tiny">{{ signal.headline }}</div>
+                {% endif %}
+              </td>
+              <td>${{ "%.2f"|format(signal.price|float) }}</td>
+              <td>{{ signal.composite_score|score }}</td>
+              <td>{{ signal.momentum_score|score }}</td>
+              <td>{{ signal.sentiment_score|score }}</td>
+              <td>{{ signal.earnings_score|score }}</td>
+              <td><span class="chip {{ signal.decision }}">{{ signal.decision }}</span></td>
+              <td>
+                <div class="tiny">Stop: ${{ "%.2f"|format(signal.stop_price|float) }}</div>
+                <div class="tiny">Target: ${{ "%.2f"|format(signal.target_price|float) }}</div>
+                {% if signal.next_earnings_date %}
+                  <div class="tiny">Next ER: {{ signal.next_earnings_date }}</div>
+                {% endif %}
+              </td>
+              <td>
+                {% if signal.decision == "buy" %}
+                  <form method="post" action="/signals/{{ signal.symbol }}/buy">
+                    <button type="submit" class="button slim">Paper Buy</button>
+                  </form>
+                {% else %}
+                  <span class="tiny muted-text">No action</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr class="detail-row">
+              <td colspan="9">{{ signal.rationale }}</td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="9" class="empty">No signals yet. Run a scan after entering your API keys.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="section-head">
+      <h2>Open Positions</h2>
+      <p>Live Alpaca paper positions show here after you place trades.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Qty</th>
+            <th>Avg Entry</th>
+            <th>Market Value</th>
+            <th>P/L</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for position in positions %}
+            <tr>
+              <td><strong>{{ position.symbol }}</strong></td>
+              <td>{{ "%.0f"|format(position.qty|float) }}</td>
+              <td>${{ "%.2f"|format(position.avg_entry_price|float) }}</td>
+              <td>${{ "%.2f"|format(position.market_value|float) }}</td>
+              <td class="{{ 'positive' if position.unrealized_plpc|float >= 0 else 'negative' }}">{{ position.unrealized_plpc|pct }}</td>
+              <td>
+                <form method="post" action="/positions/{{ position.symbol }}/sell">
+                  <button type="submit" class="button slim ghost">Close</button>
+                </form>
+              </td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="6" class="empty">No open positions yet.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+</section>
+
+<section class="grid-2">
+  <article class="panel">
+    <div class="section-head">
+      <h2>Recent Orders</h2>
+      <p>Manual dashboard orders and broker history land here.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Side</th>
+            <th>Qty</th>
+            <th>Status</th>
+            <th>Submitted</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for order in orders %}
+            <tr>
+              <td>{{ order.symbol }}</td>
+              <td>{{ order.side }}</td>
+              <td>{{ order.qty if order.qty is defined else order.filled_qty }}</td>
+              <td>{{ order.status }}</td>
+              <td>{{ order.submitted_at if order.submitted_at is defined else order.created_at }}</td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="5" class="empty">No order history available yet.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="section-head">
+      <h2>Recent News</h2>
+      <p>The sentiment engine reads these headlines, summaries, and transcript excerpts.</p>
+    </div>
+    <div class="news-feed">
+      {% for item in news_items %}
+        <article class="news-card">
+          <div class="news-topline">
+            <strong>{{ item.symbol }}</strong>
+            <span class="chip {{ 'buy' if item.sentiment|float > 0.15 else 'sell' if item.sentiment|float < -0.15 else 'watch' }}">{{ item.sentiment|score }}</span>
+          </div>
+          <h3>{{ item.headline }}</h3>
+          <p>{{ item.summary or item.content[:160] }}</p>
+          <div class="tiny">{{ item.source }} | {{ item.published_at }}</div>
+        </article>
+      {% else %}
+        <div class="empty">News will populate after the first successful market-data scan.</div>
+      {% endfor %}
+    </div>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Run History</h2>
+    <p>This gives you a clean audit trail before you ever think about live deployment.</p>
+  </div>
+  <div class="run-strip">
+    {% for run in runs %}
+      <article class="run-card">
+        <div class="chip {{ 'active' if run.status == 'ok' else 'sell' }}">{{ run.status }}</div>
+        <h3>{{ run.trigger|capitalize }} run</h3>
+        <p>{{ run.summary }}</p>
+        <div class="tiny">{{ run.completed_at }}</div>
+      </article>
+    {% else %}
+      <div class="empty">No runs recorded yet.</div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

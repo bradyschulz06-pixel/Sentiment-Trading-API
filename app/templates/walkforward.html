@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="topbar">
+  <div>
+    <div class="eyebrow">Strategy Lab</div>
+    <h1>Walk-Forward Report</h1>
+    <p class="lead">Compare universe presets and factor mixes across multiple replay windows so we can favor parameter sets that stay resilient instead of only looking good once.</p>
+  </div>
+  <div class="actions">
+    <a href="/" class="button ghost">Back To Dashboard</a>
+    <a href="/backtest" class="button ghost">Open Backtester</a>
+    <a href="/logout" class="button ghost">Log Out</a>
+  </div>
+</header>
+
+{% if error %}
+  <div class="alert danger">{{ error }}</div>
+{% endif %}
+
+<section class="grid-2">
+  <article class="panel hero-panel">
+    <div class="section-head">
+      <div>
+        <div class="panel-label">Run Research Sweep</div>
+        <h2>Find Stable Settings</h2>
+      </div>
+      <p>Uses the current exit model, benchmark, and free-data constraints, then compares the parameter sets side by side.</p>
+    </div>
+    <form method="post" action="/walk-forward" class="stack backtest-form">
+      <label>
+        <span>Replay windows (days, comma separated)</span>
+        <input type="text" name="windows_csv" value="{{ windows_csv }}">
+      </label>
+      <label>
+        <span>Threshold grid (comma separated)</span>
+        <input type="text" name="thresholds_csv" value="{{ thresholds_csv }}">
+      </label>
+      <label>
+        <span>Starting capital</span>
+        <input type="number" name="starting_capital" min="10000" max="1000000" step="1000" value="{{ starting_capital }}">
+      </label>
+      <button type="submit" class="button primary">Run Walk-Forward Report</button>
+    </form>
+    <div class="microcopy">
+      This lab compares every universe preset below against each factor profile and threshold you enter.
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="panel-label">Compared In This Report</div>
+    <div class="check-list">
+      {% for preset_key, preset in universe_presets.items() %}
+        <div><strong>{{ preset.label }}</strong>: {{ preset.description }}</div>
+      {% endfor %}
+    </div>
+    <div class="section-head section-spacer">
+      <h2>Factor Profiles</h2>
+      <p>These keep the search space understandable instead of brute-forcing hundreds of noisy combinations.</p>
+    </div>
+    <div class="news-feed">
+      {% for profile in factor_profiles %}
+        <article class="news-card">
+          <div class="news-topline">
+            <strong>{{ profile.label }}</strong>
+            <span class="chip muted">{{ "%.0f"|format(profile.weights[0] * 100) }}/{{ "%.0f"|format(profile.weights[1] * 100) }}/{{ "%.0f"|format(profile.weights[2] * 100) }}</span>
+          </div>
+          <p>{{ profile.description }}</p>
+        </article>
+      {% endfor %}
+    </div>
+  </article>
+</section>
+
+{% if result %}
+  {% set best = result.best_candidate %}
+  <section class="hero-grid">
+    <article class="panel hero-panel">
+      <div class="panel-label">Recommended Research Winner</div>
+      <div class="metric">{{ best.label if best else "No result" }}</div>
+      <div class="metric-sub">{{ result.summary }}</div>
+    </article>
+    <article class="panel">
+      <div class="panel-label">Best Stability Score</div>
+      <div class="metric">{{ best.stability_score|score if best else "n/a" }}</div>
+      <div class="metric-sub">Beat {{ result.benchmark_symbol }} in {{ best.benchmark_win_ratio|pct if best else "n/a" }} of tested windows</div>
+    </article>
+    <article class="panel">
+      <div class="panel-label">Average Return</div>
+      <div class="metric">{{ best.average_return_pct|pct if best else "n/a" }}</div>
+      <div class="metric-sub">Average outperformance: {{ best.average_outperformance_pct|pct if best else "n/a" }}</div>
+    </article>
+    <article class="panel">
+      <div class="panel-label">Average Drawdown</div>
+      <div class="metric">{{ best.average_drawdown_pct|pct if best else "n/a" }}</div>
+      <div class="metric-sub">Threshold grid: {% for threshold in result.thresholds_tested %}{{ "%.2f"|format(threshold) }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+    </article>
+  </section>
+
+  {% if best %}
+  <section class="grid-2">
+    <article class="panel">
+      <div class="section-head">
+        <h2>Why This Set Won</h2>
+        <p>The report ranks for repeatability first, not just the best single window.</p>
+      </div>
+      <div class="metric-grid">
+        <div class="metric-card">
+          <div class="panel-label">Universe</div>
+          <div class="metric">{{ best.universe_label }}</div>
+        </div>
+        <div class="metric-card">
+          <div class="panel-label">Threshold</div>
+          <div class="metric">{{ best.signal_threshold|score }}</div>
+        </div>
+        <div class="metric-card">
+          <div class="panel-label">Momentum</div>
+          <div class="metric">{{ best.factor_momentum_weight|pct }}</div>
+        </div>
+        <div class="metric-card">
+          <div class="panel-label">Sentiment</div>
+          <div class="metric">{{ best.factor_sentiment_weight|pct }}</div>
+        </div>
+        <div class="metric-card">
+          <div class="panel-label">Earnings</div>
+          <div class="metric">{{ best.factor_earnings_weight|pct }}</div>
+        </div>
+        <div class="metric-card">
+          <div class="panel-label">Trades</div>
+          <div class="metric">{{ best.total_trades }}</div>
+        </div>
+      </div>
+      <div class="warning-list">
+        {% for note in best.notes %}
+          <span class="chip muted">{{ note }}</span>
+        {% endfor %}
+        {% for note in result.notes %}
+          <span class="chip muted">{{ note }}</span>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="panel">
+      <div class="section-head">
+        <h2>Window By Window</h2>
+        <p>Each replay window keeps the same factor mix and exit model.</p>
+      </div>
+      <div class="metric-grid">
+        {% for window in best.windows %}
+          <div class="metric-card">
+            <div class="panel-label">{{ window.period_days }} Day Window</div>
+            <div class="metric {{ 'positive' if window.total_return_pct >= 0 else 'negative' }}">{{ window.total_return_pct|pct }}</div>
+            <div class="tiny">Vs {{ result.benchmark_symbol }}: <span class="{{ 'positive' if window.outperformance_pct >= 0 else 'negative' }}">{{ window.outperformance_pct|pct }}</span></div>
+            <div class="tiny">Drawdown: {{ window.max_drawdown_pct|pct }}</div>
+            <div class="tiny">Trades: {{ window.total_trades }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+  {% endif %}
+
+  <section class="panel">
+    <div class="section-head">
+      <h2>All Tested Parameter Sets</h2>
+      <p>Sorted by stability score, then benchmark hit rate and average outperformance.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Parameter Set</th>
+            <th>Stability</th>
+            <th>Beat Benchmark</th>
+            <th>Avg Return</th>
+            <th>Avg Vs {{ result.benchmark_symbol }}</th>
+            <th>Worst Vs {{ result.benchmark_symbol }}</th>
+            <th>Avg Drawdown</th>
+            <th>Dispersion</th>
+            <th>Trades</th>
+            <th>Windows</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for candidate in result.candidates %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td>
+                <strong>{{ candidate.label }}</strong>
+                <div class="tiny">Weights: M {{ candidate.factor_momentum_weight|pct }}, S {{ candidate.factor_sentiment_weight|pct }}, E {{ candidate.factor_earnings_weight|pct }}</div>
+              </td>
+              <td>{{ candidate.stability_score|score }}</td>
+              <td>{{ candidate.benchmark_win_ratio|pct }}</td>
+              <td class="{{ 'positive' if candidate.average_return_pct >= 0 else 'negative' }}">{{ candidate.average_return_pct|pct }}</td>
+              <td class="{{ 'positive' if candidate.average_outperformance_pct >= 0 else 'negative' }}">{{ candidate.average_outperformance_pct|pct }}</td>
+              <td class="{{ 'positive' if candidate.worst_outperformance_pct >= 0 else 'negative' }}">{{ candidate.worst_outperformance_pct|pct }}</td>
+              <td>{{ candidate.average_drawdown_pct|pct }}</td>
+              <td>{{ candidate.outperformance_stddev_pct|pct }}</td>
+              <td>{{ candidate.total_trades }}</td>
+              <td>
+                {% for window in candidate.windows %}
+                  <div class="tiny">{{ window.period_days }}d: {{ window.total_return_pct|pct }} / {{ window.outperformance_pct|pct }}</div>
+                {% endfor %}
+              </td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="11" class="empty">No parameter sets were tested yet.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

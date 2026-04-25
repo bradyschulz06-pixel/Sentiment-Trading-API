@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="topbar">
+  <div>
+    <div class="eyebrow">Paper Journal</div>
+    <h1>Trade Analytics</h1>
+    <p class="lead">Review what the paper account actually did, how each trade behaved after entry, and which factor was strongest when the setup opened.</p>
+  </div>
+  <div class="actions">
+    <a href="/" class="button ghost">Back To Dashboard</a>
+    <a href="/backtest" class="button ghost">Backtester</a>
+    <a href="/walk-forward" class="button ghost">Walk-Forward Lab</a>
+    <a href="/logout" class="button ghost">Log Out</a>
+  </div>
+</header>
+
+{% if error %}
+  <div class="alert danger">{{ error }}</div>
+{% endif %}
+
+{% if result %}
+<section class="hero-grid">
+  <article class="panel hero-panel">
+    <div class="panel-label">Closed Trades</div>
+    <div class="metric">{{ result.total_closed_trades }}</div>
+    <div class="metric-sub">{{ result.summary }}</div>
+  </article>
+  <article class="panel">
+    <div class="panel-label">Win Rate</div>
+    <div class="metric">{{ result.win_rate_pct|pct }}</div>
+    <div class="metric-sub">Average closed-trade return: {{ result.average_return_pct|pct }}</div>
+  </article>
+  <article class="panel">
+    <div class="panel-label">Realized P/L</div>
+    <div class="metric {{ 'positive' if result.realized_pnl >= 0 else 'negative' }}">{{ result.realized_pnl|currency }}</div>
+    <div class="metric-sub">Best trade: {{ result.best_trade_pnl|currency }} | Worst trade: {{ result.worst_trade_pnl|currency }}</div>
+  </article>
+  <article class="panel">
+    <div class="panel-label">Open Exposure</div>
+    <div class="metric">{{ result.open_positions_count }}</div>
+    <div class="metric-sub">Unrealized P/L: <span class="{{ 'positive' if result.unrealized_pnl >= 0 else 'negative' }}">{{ result.unrealized_pnl|currency }}</span> | Total: <span class="{{ 'positive' if result.realized_plus_unrealized_pnl >= 0 else 'negative' }}">{{ result.realized_plus_unrealized_pnl|currency }}</span></div>
+  </article>
+</section>
+
+<section class="grid-2">
+  <article class="panel">
+    <div class="section-head">
+      <h2>Factor Attribution</h2>
+      <p>Shows which stored factor looked strongest near entry and how those trades have performed so far.</p>
+    </div>
+    <div class="metric-grid">
+      {% for item in result.factor_summaries %}
+        <div class="metric-card">
+          <div class="panel-label">{{ item.factor_name }}</div>
+          <div class="metric">{{ item.total_trades }}</div>
+          <div class="tiny">Win rate: {{ item.win_rate_pct|pct }}</div>
+          <div class="tiny">Average return: {{ item.average_return_pct|pct }}</div>
+          <div class="tiny {{ 'positive' if item.total_pnl >= 0 else 'negative' }}">Total P/L: {{ item.total_pnl|currency }}</div>
+        </div>
+      {% else %}
+        <div class="empty">Closed trades will appear here once the paper account has completed a round trip.</div>
+      {% endfor %}
+    </div>
+    <div class="warning-list">
+      {% for note in result.notes %}
+        <span class="chip muted">{{ note }}</span>
+      {% endfor %}
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="section-head">
+      <h2>Open Positions</h2>
+      <p>Live Alpaca paper positions with the best available entry context from stored signals.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Qty</th>
+            <th>Entry</th>
+            <th>Current</th>
+            <th>Unrealized</th>
+            <th>Age</th>
+            <th>Lead Factor</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for position in result.open_positions %}
+            <tr>
+              <td>
+                <strong>{{ position.symbol }}</strong>
+                {% if position.entry_headline %}
+                  <div class="tiny">{{ position.entry_headline }}</div>
+                {% endif %}
+              </td>
+              <td>{{ "%.0f"|format(position.qty|float) }}</td>
+              <td>{{ position.avg_entry_price|currency }}</td>
+              <td>{{ position.current_price|currency }}</td>
+              <td class="{{ 'positive' if position.unrealized_pnl >= 0 else 'negative' }}">{{ position.unrealized_pnl|currency }} / {{ position.unrealized_plpc|pct }}</td>
+              <td>{{ position.hold_days if position.hold_days is not none else "n/a" }}</td>
+              <td>
+                <span class="chip muted">{{ position.dominant_factor }}</span>
+                <div class="tiny">Composite: {{ position.entry_composite_score|score }}</div>
+              </td>
+            </tr>
+            <tr class="detail-row">
+              <td colspan="7">
+                M {{ position.entry_momentum_score|score }} | S {{ position.entry_sentiment_score|score }} | E {{ position.entry_earnings_score|score }}
+                {% if position.entry_rationale %} | {{ position.entry_rationale }}{% endif %}
+              </td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="7" class="empty">No open paper positions right now.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Closed Trades</h2>
+    <p>FIFO-matched from Alpaca paper fills so we can see how each position behaved after entry.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Entry</th>
+          <th>Exit</th>
+          <th>Qty</th>
+          <th>P/L</th>
+          <th>Return</th>
+          <th>Days</th>
+          <th>Lead Factor</th>
+          <th>Entry Signal</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for trade in result.closed_trades %}
+          <tr>
+            <td>
+              <strong>{{ trade.symbol }}</strong>
+              {% if trade.entry_headline %}
+                <div class="tiny">{{ trade.entry_headline }}</div>
+              {% endif %}
+            </td>
+            <td>{{ trade.entry_at[:10] }} @ {{ trade.entry_price|currency }}</td>
+            <td>{{ trade.exit_at[:10] }} @ {{ trade.exit_price|currency }}</td>
+            <td>{{ trade.qty }}</td>
+            <td class="{{ 'positive' if trade.pnl >= 0 else 'negative' }}">{{ trade.pnl|currency }}</td>
+            <td class="{{ 'positive' if trade.return_pct >= 0 else 'negative' }}">{{ trade.return_pct|pct }}</td>
+            <td>{{ trade.hold_days if trade.hold_days is not none else "n/a" }}</td>
+            <td><span class="chip muted">{{ trade.dominant_factor }}</span></td>
+            <td>{{ trade.entry_composite_score|score }}</td>
+          </tr>
+          <tr class="detail-row">
+            <td colspan="9">
+              M {{ trade.entry_momentum_score|score }} | S {{ trade.entry_sentiment_score|score }} | E {{ trade.entry_earnings_score|score }}
+              {% if trade.entry_rationale %} | {{ trade.entry_rationale }}{% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="9" class="empty">No closed paper trades yet. Once the account completes a buy and sell cycle, this journal will start learning from it.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Recent Paper Orders</h2>
+    <p>Newest fills first so you can quickly audit what the broker actually received.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Side</th>
+          <th>Qty</th>
+          <th>Filled Price</th>
+          <th>Status</th>
+          <th>Submitted</th>
+          <th>Filled</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for order in result.recent_orders %}
+          <tr>
+            <td><strong>{{ order.symbol }}</strong></td>
+            <td>{{ order.side }}</td>
+            <td>{{ order.qty }}</td>
+            <td>{{ order.filled_price|currency }}</td>
+            <td>{{ order.status }}</td>
+            <td>{{ order.submitted_at }}</td>
+            <td>{{ order.filled_at }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="7" class="empty">No filled orders were returned by Alpaca yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="login-card">
+  <div class="eyebrow">Paper Trading Control Room</div>
+  <h1>{{ settings.app_name }}</h1>
+  <p class="lead">Sentiment, momentum, and earnings surprise in one clean swing-trading dashboard.</p>
+  <form method="post" action="/login" class="stack">
+    <label>
+      <span>Username</span>
+      <input type="text" name="username" value="{{ settings.admin_username }}" required>
+    </label>
+    <label>
+      <span>Password</span>
+      <input type="password" name="password" required>
+    </label>
+    {% if error %}
+      <div class="alert danger">{{ error }}</div>
+    {% endif %}
+    {% if settings.has_password_warning %}
+      <div class="alert warning">Default password is still active. Change it in <code>.env</code> before any deployment.</div>
+    {% endif %}
+    <button type="submit" class="button primary">Enter Dashboard</button>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,13 @@
+.env
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+dist/
+build/
+htmlcov/
+trading.db
+*.egg-info/

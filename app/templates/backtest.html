@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="topbar">
+  <div>
+    <div class="eyebrow">Strategy Lab</div>
+    <h1>Backtester</h1>
+    <p class="lead">Replay the current swing model on recent daily bars with friction, configurable factor weights, tighter exits, and a benchmark overlay before we trust it with automated paper trades.</p>
+  </div>
+  <div class="actions">
+    <a href="/" class="button ghost">Back To Dashboard</a>
+    <a href="/walk-forward" class="button ghost">Open Walk-Forward Lab</a>
+    <a href="/logout" class="button ghost">Log Out</a>
+  </div>
+</header>
+
+{% if error %}
+  <div class="alert danger">{{ error }}</div>
+{% endif %}
+
+<section class="grid-2">
+  <article class="panel hero-panel">
+    <div class="section-head">
+      <div>
+        <div class="panel-label">Run Replay</div>
+        <h2>Measure The Model</h2>
+      </div>
+      <p>Runs on the current large-cap universe with daily closes, execution friction, and stricter exits.</p>
+    </div>
+    <form method="post" action="/backtest" class="stack backtest-form">
+      <label>
+        <span>Universe preset</span>
+        <select name="universe_preset">
+          {% for preset_key, preset in universe_presets.items() %}
+            <option value="{{ preset_key }}" {% if universe_preset == preset_key %}selected{% endif %}>{{ preset.label }}: {{ preset.description }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Trading days</span>
+        <input type="number" name="period_days" min="60" max="252" step="1" value="{{ period_days }}">
+      </label>
+      <label>
+        <span>Starting capital</span>
+        <input type="number" name="starting_capital" min="10000" max="1000000" step="1000" value="{{ starting_capital }}">
+      </label>
+      <div class="metric-grid">
+        <label class="metric-card">
+          <span>Buy threshold</span>
+          <input type="number" name="signal_threshold" min="0.10" max="0.90" step="0.01" value="{{ signal_threshold }}">
+        </label>
+        <label class="metric-card">
+          <span>Momentum weight</span>
+          <input type="number" name="factor_momentum_weight" min="0" max="1" step="0.01" value="{{ factor_momentum_weight }}">
+        </label>
+        <label class="metric-card">
+          <span>Sentiment weight</span>
+          <input type="number" name="factor_sentiment_weight" min="0" max="1" step="0.01" value="{{ factor_sentiment_weight }}">
+        </label>
+        <label class="metric-card">
+          <span>Earnings weight</span>
+          <input type="number" name="factor_earnings_weight" min="0" max="1" step="0.01" value="{{ factor_earnings_weight }}">
+        </label>
+        <label class="metric-card">
+          <span>Commission / order</span>
+          <input type="number" name="commission_per_order" min="0" max="25" step="0.25" value="{{ commission_per_order }}">
+        </label>
+        <label class="metric-card">
+          <span>Slippage (bps)</span>
+          <input type="number" name="slippage_bps" min="0" max="100" step="1" value="{{ slippage_bps }}">
+        </label>
+        <label class="metric-card">
+          <span>Max hold days</span>
+          <input type="number" name="max_hold_days" min="3" max="90" step="1" value="{{ max_hold_days }}">
+        </label>
+        <label class="metric-card">
+          <span>Min hold days</span>
+          <input type="number" name="min_hold_days" min="1" max="30" step="1" value="{{ min_hold_days }}">
+        </label>
+        <label class="metric-card">
+          <span>Trailing stop %</span>
+          <input type="number" name="trailing_stop_pct" min="0.01" max="0.30" step="0.01" value="{{ trailing_stop_pct }}">
+        </label>
+        <label class="metric-card">
+          <span>Trailing arm %</span>
+          <input type="number" name="trailing_arm_pct" min="0.00" max="0.20" step="0.01" value="{{ trailing_arm_pct }}">
+        </label>
+        <label class="metric-card">
+          <span>Take profit %</span>
+          <input type="number" name="take_profit_pct" min="0.01" max="0.50" step="0.01" value="{{ take_profit_pct }}">
+        </label>
+      </div>
+      <button type="submit" class="button primary">Run Backtest</button>
+    </form>
+    <div class="microcopy">
+      Historical news sentiment is intentionally excluded from replay because cheap point-in-time news reconstruction would create misleading results. Factor weights are normalized automatically inside the model.
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="panel-label">What This Replay Does</div>
+    <div class="check-list">
+      <div>Uses daily Alpaca bars for price history and compares the strategy against {{ settings.backtest_benchmark_symbol }}.</div>
+      <div>Lets you test tighter stock universes and different momentum, sentiment, and earnings mixes with the same exit shell.</div>
+      <div>Applies a market regime filter so weak index trend or weak breadth blocks new longs and mixed tape raises the entry bar.</div>
+      <div>Applies historical earnings surprises only after the reported date is known.</div>
+      <div>Adds commission and slippage so paper-trading decisions are held to a tougher standard.</div>
+      <div>Uses hard stop, armed trailing stop, time stop, profit-take, and signal-fade exits.</div>
+    </div>
+  </article>
+</section>
+
+{% if result %}
+<section class="hero-grid">
+  <article class="panel hero-panel">
+    <div class="panel-label">Strategy Return</div>
+    <div class="metric">{{ result.total_return_pct|pct }}</div>
+    <div class="metric-sub">{{ result.start_date }} to {{ result.end_date }}</div>
+  </article>
+  <article class="panel">
+    <div class="panel-label">Ending Equity</div>
+    <div class="metric">{{ result.ending_equity|currency }}</div>
+    <div class="metric-sub">Started with {{ result.starting_capital|currency }}</div>
+  </article>
+  <article class="panel">
+    <div class="panel-label">Benchmark</div>
+    <div class="metric">{{ result.benchmark_symbol }} {{ result.benchmark_return_pct|pct }}</div>
+    <div class="metric-sub">Benchmark ending value: {{ result.benchmark_ending_equity|currency }}</div>
+  </article>
+  <article class="panel">
+    <div class="panel-label">Outperformance</div>
+    <div class="metric {{ 'positive' if result.outperformance_pct >= 0 else 'negative' }}">{{ result.outperformance_pct|pct }}</div>
+    <div class="metric-sub">Max drawdown: {{ result.max_drawdown_pct|pct }}</div>
+  </article>
+</section>
+
+<section class="grid-2">
+  <article class="panel">
+    <div class="section-head">
+      <h2>Strategy Vs Benchmark</h2>
+      <p>{{ result.summary }}</p>
+    </div>
+    <div class="chart-shell">
+      <svg viewBox="0 0 100 60" preserveAspectRatio="none" class="equity-chart" aria-label="Backtest strategy versus benchmark chart">
+        <polyline fill="none" stroke="#67d0ff" stroke-width="2.4" points="{{ result.chart_points }}"></polyline>
+        <polyline fill="none" stroke="#ffd27d" stroke-width="2.0" stroke-dasharray="3 2" points="{{ result.benchmark_chart_points }}"></polyline>
+      </svg>
+    </div>
+    <div class="legend-row">
+      <span class="legend-chip"><span class="legend-line strategy"></span>Strategy</span>
+      <span class="legend-chip"><span class="legend-line benchmark"></span>{{ result.benchmark_symbol }}</span>
+    </div>
+    <div class="warning-list">
+      {% for note in result.notes %}
+        <span class="chip muted">{{ note }}</span>
+      {% endfor %}
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="section-head">
+      <h2>Replay Settings</h2>
+      <p>The exact assumptions used in this run.</p>
+    </div>
+    <div class="metric-grid">
+      <div class="metric-card">
+        <div class="panel-label">Trades</div>
+        <div class="metric">{{ result.total_trades }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="panel-label">Win Rate</div>
+        <div class="metric">{{ result.win_rate_pct|pct }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="panel-label">Average Trade</div>
+        <div class="metric">{{ result.average_trade_return_pct|pct }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="panel-label">Universe</div>
+        <div class="metric">{{ result.universe_label }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="panel-label">Threshold</div>
+        <div class="metric">{{ result.signal_threshold|score }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="panel-label">Momentum</div>
+        <div class="metric">{{ result.factor_momentum_weight|pct }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="panel-label">Sentiment</div>
+        <div class="metric">{{ result.factor_sentiment_weight|pct }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="panel-label">Earnings</div>
+        <div class="metric">{{ result.factor_earnings_weight|pct }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="panel-label">Commission</div>
+        <div class="metric">{{ result.commission_per_order|currency }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="panel-label">Max Hold</div>
+        <div class="metric">{{ result.max_hold_days }}d</div>
+      </div>
+      <div class="metric-card">
+        <div class="panel-label">Min Hold</div>
+        <div class="metric">{{ result.min_hold_days }}d</div>
+      </div>
+      <div class="metric-card">
+        <div class="panel-label">Trailing Stop</div>
+        <div class="metric">{{ result.trailing_stop_pct|pct }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="panel-label">Trailing Arm</div>
+        <div class="metric">{{ result.trailing_arm_pct|pct }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="panel-label">Take Profit</div>
+        <div class="metric">{{ result.take_profit_pct|pct }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="panel-label">Slippage</div>
+        <div class="metric">{{ result.slippage_bps }} bps</div>
+      </div>
+    </div>
+    <div class="actions export-actions">
+      <a href="/backtest/export/trades.csv" class="button ghost">Download Trades CSV</a>
+      <a href="/backtest/export/equity.csv" class="button ghost">Download Equity CSV</a>
+      <a href="/walk-forward" class="button ghost">Compare Stable Parameter Sets</a>
+    </div>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Recent Closed Trades</h2>
+    <p>Newest completed trades first.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Entry</th>
+          <th>Exit</th>
+          <th>Qty</th>
+          <th>Gross P/L</th>
+          <th>Net P/L</th>
+          <th>Fees</th>
+          <th>Return</th>
+          <th>Days Held</th>
+          <th>Reason</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for trade in result.trades[:25] %}
+          <tr>
+            <td><strong>{{ trade.symbol }}</strong></td>
+            <td>{{ trade.entry_date }} @ {{ trade.entry_price|currency }}</td>
+            <td>{{ trade.exit_date }} @ {{ trade.exit_price|currency }}</td>
+            <td>{{ trade.qty }}</td>
+            <td class="{{ 'positive' if trade.gross_pnl >= 0 else 'negative' }}">{{ trade.gross_pnl|currency }}</td>
+            <td class="{{ 'positive' if trade.pnl >= 0 else 'negative' }}">{{ trade.pnl|currency }}</td>
+            <td>{{ trade.commissions_paid|currency }}</td>
+            <td class="{{ 'positive' if trade.return_pct >= 0 else 'negative' }}">{{ trade.return_pct|pct }}</td>
+            <td>{{ trade.hold_days }}</td>
+            <td class="tiny">{{ trade.exit_reason }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="10" class="empty">No trades were completed in this replay window.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

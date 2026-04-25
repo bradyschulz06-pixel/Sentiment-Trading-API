@@ -1,0 +1,23 @@
+[project]
+name = "ai-stock-trader"
+version = "0.1.0"
+description = "Password-protected MVP web app for sentiment, momentum, and earnings-surprise driven paper trading."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+  "fastapi>=0.116.0",
+  "httpx>=0.28.0",
+  "itsdangerous>=2.2.0",
+  "jinja2>=3.1.6",
+  "python-multipart>=0.0.20",
+  "uvicorn>=0.35.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4.0",
+]
+
+[build-system]
+requires = ["setuptools>=80.0"]
+build-backend = "setuptools.build_meta"
