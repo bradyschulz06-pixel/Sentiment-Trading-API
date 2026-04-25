@@ -1,0 +1,611 @@
+MASTER PROJECT RECAP
+Generated: 2026-04-25
+Project root: E:\ai-stock-trader
+
+Purpose of this document:
+- Give a complete project-level recap of the missions completed in this build thread.
+- Describe what the program does now.
+- Inventory the major code changes by file/module.
+- Capture later code-state refinements visible in the local repo, even where they were not individually spelled out in the shorter earlier recap.
+
+Security note:
+- This file does not print raw API keys.
+- Local secrets remain in E:\ai-stock-trader\.env.
+
+==================================================
+1. MAIN DESCRIPTION OF THE PROGRAM
+==================================================
+
+This program is a password-protected paper-trading research and execution dashboard for U.S. swing trades.
+
+The strategy combines:
+- momentum from daily price action
+- sentiment from recent news
+- earnings surprise from reported versus estimated EPS
+- earnings-call transcript tone from Alpha Vantage
+
+The current app supports:
+- manual paper trading through Alpaca
+- a live signal dashboard
+- a backtester with realistic friction assumptions
+- a walk-forward research lab for parameter stability
+- a paper-trade journal with factor attribution
+- a market regime filter based on SPY trend and breadth
+
+Current design constraints:
+- long-only
+- swing trading
+- paper trading first
+- auto-trading off by default
+- free/cheap data aware
+- understandable before clever
+
+==================================================
+2. HIGH-LEVEL ARCHITECTURE
+==================================================
+
+Main layers:
+- Web app: FastAPI + Jinja templates
+- Data persistence: SQLite
+- Broker/data integration: Alpaca
+- Earnings/transcript integration: Alpha Vantage
+- Strategy engine: scoring + trade planning
+- Research tools: backtest + walk-forward
+- Review tools: paper-trade journal
+- Risk overlay: market regime filter
+
+Main routes:
+- /
+- /login
+- /logout
+- /run
+- /journal
+- /backtest
+- /walk-forward
+- /backtest/export/trades.csv
+- /backtest/export/equity.csv
+- /healthz
+
+==================================================
+3. MISSIONS COMPLETED IN ORDER
+==================================================
+
+MISSION 1: Define the product direction
+- Clarified the trading style and scope.
+- Locked in paper trading first, live later, swing horizon, long-only, web app UI, free/cheap data, and fast MVP approach.
+
+MISSION 2: Scaffold the MVP project
+- Created the local project at E:\ai-stock-trader.
+- Set up Python package metadata, app structure, tests, templates, static assets, and local environment configuration.
+
+MISSION 3: Build the first functional trading dashboard
+- Added login-protected FastAPI app.
+- Added manual scan flow.
+- Added signal ranking, position view, recent orders, run history, and recent news display.
+- Added local SQLite persistence for runs, signals, news, positions, trades, and API cache.
+
+MISSION 4: Integrate Alpaca paper trading
+- Connected to Alpaca paper account for account data, positions, orders, price bars, and news.
+- Added dashboard paper-buy and close-position actions.
+- Verified live connectivity.
+
+MISSION 5: Integrate Alpha Vantage earnings and transcripts
+- Added quarterly earnings history lookup.
+- Added current earnings bundle lookup.
+- Added transcript parsing and transcript sentiment.
+- Added upcoming earnings date lookup.
+- Added local caching and rate limiting.
+
+MISSION 6: Secure the dashboard login
+- Added PBKDF2 password hashing and verification.
+- Updated local login password and stored the hash in .env.
+- Preserved plaintext fallback for local dev while surfacing warnings.
+
+MISSION 7: Build a first backtester
+- Added /backtest.
+- Replayed signals across historical daily bars.
+- Compared strategy versus SPY.
+- Used historical earnings only after known report dates.
+- Kept historical news sentiment neutral in replay to avoid pretending to have cheap point-in-time news history.
+
+MISSION 8: Add realistic backtest assumptions
+- Added commission and slippage assumptions.
+- Added hard stop, trailing stop, trailing arm, time stop, take profit, and signal-fade exits.
+- Added benchmark overlay chart.
+- Added CSV export of trades and equity curve.
+
+MISSION 9: Tune entry and exit shell
+- Tested extra entry gates and found they were not robust enough.
+- Kept the core entry shell.
+- Settled on stable exit defaults and kept trailing-arm off by default.
+
+MISSION 10: Redesign the universe and factor tuning controls
+- Added curated universe presets.
+- Added configurable factor weights.
+- Added threshold controls to the backtester.
+- Promoted the strongest multi-window universe/weight set into defaults.
+
+MISSION 11: Add walk-forward research
+- Added /walk-forward.
+- Compared preset combinations across 60/90/120/150 day windows.
+- Ranked parameter sets by stability instead of single-window performance.
+- Promoted the winning settings into .env and README.
+
+MISSION 12: Add a paper-trade journal
+- Added /journal.
+- Reconstructed closed paper trades and open positions from Alpaca fills.
+- Matched entries to the nearest saved signal snapshot.
+- Added factor attribution and performance summaries by dominant factor.
+
+MISSION 13: Add a market regime filter
+- Classified the market as supportive, cautious, or risk_off.
+- Used SPY trend plus breadth of the active universe.
+- Raised threshold and reduced capacity in cautious conditions.
+- Blocked new longs in risk_off conditions.
+- Surfaced regime state on the dashboard and inside backtest notes.
+
+MISSION 14: Repo-state refinements visible in current code
+- Added volatility-normalized momentum scoring.
+- Added volatility-adjusted position sizing helper.
+- Added ATR-based target price calculation.
+- Added Sharpe and Sortino ratio fields in backtest results.
+- Added Alpha Vantage payload-level error detection.
+- Added config clamping helpers and a BACKTEST_MIN_BARS control.
+- Added SQLite indexes for faster reads.
+
+Note on Mission 14:
+- These refinements are present in the current local codebase and tests.
+- They are included here because the request was for a full recap of what the built project now contains.
+
+==================================================
+4. CURRENT STRATEGY LOGIC
+==================================================
+
+Signal inputs:
+- Momentum score
+- News sentiment score
+- Earnings score
+
+Current default factor mix:
+- 40% momentum
+- 25% sentiment
+- 35% earnings
+
+Current default universe:
+- sector_leaders
+
+Current default buy threshold:
+- 0.30
+
+Current major trading guardrails:
+- long-only
+- max 5 positions
+- 10% max capital per base trade before further adjustments
+- 8% hard stop baseline
+- entries blocked near earnings
+- market regime filter active
+
+Current backtest exit shell:
+- hard stop
+- armed trailing stop
+- time stop
+- profit take
+- signal quality fade exit
+
+Current market regime states:
+- supportive
+- cautious
+- risk_off
+
+==================================================
+5. FILE-BY-FILE CODE CHANGE INVENTORY
+==================================================
+
+PROJECT ROOT FILES
+
+E:\ai-stock-trader\pyproject.toml
+- Created Python package metadata.
+- Declared core app dependencies.
+- Added dev dependency group with pytest.
+
+E:\ai-stock-trader\.env.example
+- Added all required environment variables for local setup.
+- Added strategy controls, backtest controls, regime controls, and deployment password guidance.
+- Updated defaults to match the walk-forward winner.
+
+E:\ai-stock-trader\.env
+- Local runtime configuration.
+- Stores broker/data keys, password hash, and current active settings.
+- Not a source-code module, but it is central to the runtime behavior.
+
+E:\ai-stock-trader\README.md
+- Added product description.
+- Added setup instructions.
+- Added route descriptions.
+- Added key controls and current strategy defaults.
+- Added notes on backtesting, walk-forward, journal, and regime filter.
+
+E:\ai-stock-trader\FULL_CHAT_RECAP.txt
+- Earlier chronological recap of the build thread.
+
+E:\ai-stock-trader\MASTER_PROJECT_RECAP.txt
+- This full mission + code inventory recap.
+
+CORE APP MODULES
+
+E:\ai-stock-trader\app\auth.py
+- Added PBKDF2-SHA256 password hashing.
+- Added password verification against hashed values.
+- Added plaintext fallback path for local dev compatibility.
+- Added warning when plaintext auth source is still being used.
+
+E:\ai-stock-trader\app\config.py
+- Added environment loading from .env.
+- Added strongly typed Settings dataclass.
+- Added helper parsers for bool/int/float.
+- Added clamped float config helper to prevent invalid runtime values.
+- Added settings for:
+  - Alpaca
+  - Alpha Vantage
+  - universe preset
+  - universe overrides
+  - lookback and news windows
+  - earnings limits
+  - position/risk model
+  - signal threshold
+  - factor weights
+  - regime filter
+  - backtest assumptions
+  - DB path
+- Added BACKTEST_MIN_BARS in current repo state.
+
+E:\ai-stock-trader\app\db.py
+- Added SQLite schema for:
+  - runs
+  - signals
+  - news_items
+  - positions_snapshot
+  - trades
+  - cache
+- Added connection/context helpers.
+- Added cache get/set helpers.
+- Added save_run serialization for engine outputs.
+- Added fetch helpers for dashboard use.
+- Added signal history fetch for journal attribution.
+- Added indexes in current repo state for faster symbol/run/cache access.
+
+E:\ai-stock-trader\app\models.py
+- Added dataclasses for:
+  - PriceBar
+  - NewsItem
+  - EarningsBundle
+  - PositionSnapshot
+  - SignalScore
+  - TradeIntent
+  - EngineRunResult
+  - BacktestTrade
+  - BacktestPoint
+  - BacktestResult
+  - WalkForwardWindowResult
+  - WalkForwardCandidateResult
+  - WalkForwardResult
+  - JournalClosedTrade
+  - JournalOpenPosition
+  - JournalFactorSummary
+  - JournalOrderActivity
+  - PaperJournalResult
+- Added Sharpe and Sortino fields to BacktestResult in current repo state.
+
+E:\ai-stock-trader\app\sentiment.py
+- Added phrase-based and token-based sentiment scoring.
+- Added negation handling.
+- Added score clamping.
+- Added recency-weighted aggregation of multiple news items.
+- Added exponential time decay for older headlines.
+
+E:\ai-stock-trader\app\scoring.py
+- Added momentum score calculation from trend and returns.
+- Later refined momentum scoring to normalize returns by realized volatility.
+- Added ATR calculation helper.
+- Added earnings score calculation with recency decay and earnings blackout handling.
+- Added factor-weight normalization.
+- Added composite signal builder.
+- Added volatility-based position-size scalar helper in current repo state.
+- Changed target price logic from a fixed simple multiple to ATR-based target generation in current repo state.
+
+E:\ai-stock-trader\app\universe.py
+- Added curated universe preset system.
+- Added preset metadata (label, description, symbol lists).
+- Added balanced_quality preset.
+- Added mega_cap_focus preset.
+- Added sector_leaders preset.
+- Added normalization and union helpers.
+
+WEB APP ENTRYPOINT
+
+E:\ai-stock-trader\app\main.py
+- Created FastAPI app setup.
+- Added session middleware.
+- Added Jinja template setup and formatting filters.
+- Added login/logout routes.
+- Added dashboard route.
+- Added manual engine run route.
+- Added backtest page and POST handler.
+- Added backtest CSV export routes.
+- Added walk-forward page and POST handler.
+- Added journal page route.
+- Added paper buy / close routes.
+- Added healthz route.
+- Added dashboard context building from DB and Alpaca.
+- Added backtest context state caching.
+- Added walk-forward context state caching.
+- Added regime warning parsing and dashboard regime display support.
+
+SERVICE LAYER
+
+E:\ai-stock-trader\app\services\alpaca.py
+- Added HTTP wrapper for Alpaca REST endpoints.
+- Added account lookup.
+- Added positions lookup.
+- Added order history lookup.
+- Added daily bars fetch.
+- Added news fetch.
+- Added market order submission.
+- Added close-position call.
+
+E:\ai-stock-trader\app\services\alpha_vantage.py
+- Added Alpha Vantage JSON/text request helpers with caching and rate limiting.
+- Added earnings bundle fetch.
+- Added quarterly earnings history fetch.
+- Added transcript processing and sentiment scoring.
+- Added upcoming earnings calendar parsing.
+- Added _check_av_response in current repo state to catch API-level payload errors such as Note / Information / Error Message.
+
+E:\ai-stock-trader\app\services\engine.py
+- Added end-to-end manual scan engine.
+- Added account and position fetch.
+- Added universe scan loop.
+- Added momentum/news pre-ranking.
+- Added selective Alpha Vantage lookup budget.
+- Added signal construction.
+- Added trade planning for buys and sells.
+- Added optional execution path for auto-trade mode.
+- Added saved run output to SQLite.
+- Added regime-aware threshold and capacity adjustments.
+- Added regime warning serialization.
+- Added price_map handoff into trade planner.
+- Added volatility-adjusted budget sizing per symbol in current repo state.
+- Added more explicit Alpaca HTTP error handling in current repo state.
+- Refined expensive earnings selection to draw from both momentum leaders and news leaders in current repo state.
+
+E:\ai-stock-trader\app\services\backtest.py
+- Added replay engine over daily bars.
+- Added realistic entry and exit accounting.
+- Added benchmark equity tracking.
+- Added chart polyline generation.
+- Added drawdown calculation.
+- Added commission and slippage handling.
+- Added strict exit reasons.
+- Added configurable signal threshold and factor weights.
+- Added universe preset integration.
+- Added regime-aware threshold and capacity adjustments.
+- Added regime day counts into notes.
+- Added market-data loading helper.
+- Added volatility-adjusted per-trade budget sizing in current repo state.
+- Added Sharpe ratio and Sortino ratio calculations in current repo state.
+- Added configurable minimum eligible bar count through settings in current repo state.
+
+E:\ai-stock-trader\app\services\walkforward.py
+- Added fixed factor profile library.
+- Added default windows and thresholds.
+- Added candidate stability scoring.
+- Added multi-window sweep across universes, profiles, and thresholds.
+- Added result ranking and best-candidate reporting.
+
+E:\ai-stock-trader\app\services\journal.py
+- Added Alpaca fill normalization.
+- Added timestamp parsing and signal matching.
+- Added FIFO lot reconstruction.
+- Added closed-trade and open-position journal views.
+- Added dominant factor attribution from stored signal snapshots.
+- Added factor-level P/L summaries.
+
+E:\ai-stock-trader\app\services\market_regime.py
+- Added MarketRegime dataclass.
+- Added threshold/capacity adjustment helpers.
+- Added regime warning serialization.
+- Added breadth metrics.
+- Added regime evaluation using:
+  - SPY trend
+  - breadth
+  - benchmark returns
+- Added signal override behavior for cautious/risk_off.
+- Current repo state also adds realized-volatility awareness so very high market vol can force a more defensive cautious state even if trend is not outright broken.
+
+TEMPLATES AND STATIC UI
+
+E:\ai-stock-trader\app\templates\base.html
+- Added shared page shell and CSS/JS inclusion.
+
+E:\ai-stock-trader\app\templates\login.html
+- Added login form UI.
+- Added default-password warning display.
+
+E:\ai-stock-trader\app\templates\dashboard.html
+- Added top-level dashboard layout.
+- Added account, run, regime, and risk summary cards.
+- Added tables for signals, positions, orders.
+- Added news feed and run history.
+- Added links to journal, backtest, and walk-forward.
+
+E:\ai-stock-trader\app\templates\backtest.html
+- Added replay form.
+- Added parameter controls.
+- Added universe preset and factor-weight controls.
+- Added benchmark chart.
+- Added replay metrics.
+- Added CSV export links.
+- Added backtest notes and trade table.
+- Added market-regime description in the page copy.
+
+E:\ai-stock-trader\app\templates\walkforward.html
+- Added research sweep form.
+- Added comparison of universe presets and factor profiles.
+- Added best-candidate summary.
+- Added window-by-window view.
+- Added full tested-parameter ranking table.
+
+E:\ai-stock-trader\app\templates\journal.html
+- Added realized/unrealized analytics summary cards.
+- Added factor attribution section.
+- Added open positions table.
+- Added closed trades table.
+- Added recent fills table.
+
+E:\ai-stock-trader\app\static\styles.css
+- Added complete visual styling for the app.
+- Added responsive layout rules.
+- Added card, table, chart, chip, and form styling.
+- Extended styles as new pages and controls were added.
+
+E:\ai-stock-trader\app\static\app.js
+- Added simple form-submit UX so buttons disable and show “Working...” during requests.
+
+TESTS
+
+E:\ai-stock-trader\tests\test_auth.py
+- Verifies password hash round-trip.
+- Verifies plaintext fallback behavior.
+
+E:\ai-stock-trader\tests\test_scoring.py
+- Verifies buy/watch signal behavior.
+- Verifies factor-weight normalization.
+
+E:\ai-stock-trader\tests\test_backtest.py
+- Verifies replay produces trades and curves.
+- Verifies risk_off regime can block new longs.
+
+E:\ai-stock-trader\tests\test_walkforward.py
+- Verifies stable-candidate selection logic for walk-forward.
+
+E:\ai-stock-trader\tests\test_journal.py
+- Verifies journal reconstruction of closed and open paper trades.
+
+E:\ai-stock-trader\tests\test_market_regime.py
+- Verifies supportive and risk_off regime classification.
+
+E:\ai-stock-trader\tests\test_sentiment.py
+- Verifies phrase polarity, negation handling, clamp behavior, and news recency decay.
+
+E:\ai-stock-trader\tests\test_alpha_vantage.py
+- Verifies Alpha Vantage payload-level error detection.
+
+E:\ai-stock-trader\tests\test_vol_normalization.py
+- Verifies volatility-based allocation scalar and volatility-sensitive momentum behavior.
+
+==================================================
+6. CURRENT IMPORTANT LOCAL SETTINGS
+==================================================
+
+Current notable runtime settings from repo state:
+- UNIVERSE_PRESET = sector_leaders
+- SIGNAL_THRESHOLD = 0.30
+- FACTOR_MOMENTUM_WEIGHT = 0.40
+- FACTOR_SENTIMENT_WEIGHT = 0.25
+- FACTOR_EARNINGS_WEIGHT = 0.35
+- MARKET_REGIME_FILTER_ENABLED = true
+- MARKET_REGIME_CAUTIOUS_THRESHOLD_BOOST = 0.04
+- MARKET_REGIME_CAUTIOUS_MAX_POSITIONS_MULTIPLIER = 0.50
+- MAX_POSITIONS = 5
+- MAX_POSITION_PCT = 0.10
+- STOP_LOSS_PCT = 0.08
+- BACKTEST_MAX_HOLD_DAYS = 18
+- BACKTEST_MIN_HOLD_DAYS = 3
+- BACKTEST_TRAILING_STOP_PCT = 0.06
+- BACKTEST_TRAILING_ARM_PCT = 0.00
+- BACKTEST_TAKE_PROFIT_PCT = 0.14
+
+Login:
+- username: admin
+- password: stored locally and managed through .env / ADMIN_PASSWORD_HASH
+
+Current local app URL:
+- http://127.0.0.1:8000
+
+==================================================
+7. MAIN PROGRAM BEHAVIOR TODAY
+==================================================
+
+Operationally, the app does the following:
+
+1. The user logs into the web dashboard.
+2. The engine scans a curated large-cap universe.
+3. It fetches bars and recent news from Alpaca.
+4. It selectively fetches earnings and transcript context from Alpha Vantage.
+5. It builds a composite signal from momentum, sentiment, and earnings.
+6. It classifies the market regime from SPY trend and breadth.
+7. It adjusts entry aggressiveness based on regime.
+8. It proposes manual paper trades.
+9. It records each scan, signal set, news slice, and planned trade in SQLite.
+10. The user can review backtests, walk-forward studies, and paper-trade journal analytics before enabling any automation.
+
+==================================================
+8. MOST IMPORTANT ENGINEERING DECISIONS
+==================================================
+
+The project deliberately avoided these shortcuts:
+- pretending to backtest cheap point-in-time historical news sentiment
+- turning on auto trading before having a journal and research tooling
+- using a huge universe with weak data coverage
+- treating one good backtest window as enough evidence
+
+The project deliberately chose these tradeoffs:
+- curated universe over broad universe
+- transparent heuristics over opaque ML
+- manual-first paper trading over early automation
+- local SQLite persistence over premature infrastructure
+- simple web app over command-line only operation
+
+==================================================
+9. CURRENT GAPS / NEXT LIKELY MISSIONS
+==================================================
+
+Most logical next step:
+- volatility-adjusted position sizing rollout end-to-end in the user-facing workflow, if not already fully exposed in the UI
+
+Other likely future work already identified earlier:
+- sector exposure limits
+- correlation limits
+- cached historical backtest datasets
+- better transcript summarization
+- alerting
+- improved deployment hardening
+
+==================================================
+10. FINAL SUMMARY
+==================================================
+
+This project is no longer just a concept or a toy scaffold.
+
+It is a functioning local trading research and paper-execution system with:
+- broker connectivity
+- earnings/transcript enrichment
+- signal generation
+- backtesting
+- walk-forward tuning
+- paper-trade journaling
+- market regime filtering
+- local persistence
+- password-protected UI
+
+The central strategy idea stayed consistent throughout:
+- combine momentum, sentiment, and earnings surprise for long-only swing trades
+
+The main arc of the engineering work was:
+- build the foundation
+- make it safe
+- make it measurable
+- tune it
+- add review tooling
+- add regime-aware risk control
+
