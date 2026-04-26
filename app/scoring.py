@@ -3,12 +3,8 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 import math
 
-from app.models import EarningsBundle, NewsItem, PositionSnapshot, PriceBar, SignalScore
-from app.sentiment import aggregate_news_sentiment, clamp
-
-_FACTOR_ALIGN_THRESHOLD = 0.20
-_FACTOR_ALIGN_BONUS = 1.10
-_FACTOR_ALIGN_PENALTY = 0.90
+from app.models import EarningsBundle, PositionSnapshot, PriceBar, SignalScore
+from app.sentiment import clamp
 
 
 def _rolling_annualized_vol(closes: list[float], window: int) -> float:
@@ -143,22 +139,6 @@ def compute_position_vol_scalar(
     return max(min_scalar, min(max_scalar, scalar))
 
 
-def normalize_factor_weights(
-    momentum_weight: float,
-    sentiment_weight: float,
-    earnings_weight: float,
-) -> tuple[float, float, float]:
-    raw_weights = [
-        max(0.0, momentum_weight),
-        max(0.0, sentiment_weight),
-        max(0.0, earnings_weight),
-    ]
-    total = sum(raw_weights)
-    if total <= 0:
-        return 0.45, 0.20, 0.35
-    return tuple(weight / total for weight in raw_weights)
-
-
 def compute_momentum_score(bars: list[PriceBar]) -> tuple[float, dict]:
     closes = [bar.close for bar in bars]
     current = closes[-1]
@@ -203,7 +183,7 @@ def compute_earnings_score(bundle: EarningsBundle | None, today: date, buffer_da
         return 0.0, False
     reported_date = _parse_iso_date(bundle.reported_date)
     days_since_report = (today - reported_date).days if reported_date else 45
-    recency_decay = math.exp(-(max(days_since_report, 0) / 55.0))
+    recency_decay = math.exp(-(max(days_since_report, 0) / 30.0))
     surprise_component = clamp((bundle.surprise_pct or 0.0) / 15.0)
     score = clamp(((surprise_component * 0.70) + (bundle.transcript_sentiment * 0.30)) * recency_decay)
     blocked_for_earnings = False
@@ -219,62 +199,23 @@ def compute_earnings_score(bundle: EarningsBundle | None, today: date, buffer_da
 def build_signal(
     symbol: str,
     bars: list[PriceBar],
-    news_items: list[NewsItem],
     bundle: EarningsBundle | None,
     threshold: float,
     stop_loss_pct: float,
     upcoming_earnings_buffer_days: int,
-    momentum_weight: float = 0.45,
-    sentiment_weight: float = 0.20,
-    earnings_weight: float = 0.35,
     position: PositionSnapshot | None = None,
     today: date | None = None,
 ) -> SignalScore:
     momentum_score, metrics = compute_momentum_score(bars)
-    sentiment_score = aggregate_news_sentiment(news_items)
-    momentum_weight, sentiment_weight, earnings_weight = normalize_factor_weights(
-        momentum_weight,
-        sentiment_weight,
-        earnings_weight,
-    )
     earnings_score, blocked_for_earnings = compute_earnings_score(
         bundle,
         today=today or datetime.now(timezone.utc).date(),
         buffer_days=upcoming_earnings_buffer_days,
     )
-    composite = clamp(
-        (momentum_score * momentum_weight)
-        + (sentiment_score * sentiment_weight)
-        + (earnings_score * earnings_weight)
-    )
+    composite = earnings_score
     current_price = metrics["current"]
     rsi = metrics.get("rsi", 50.0)
-    macd_histogram = metrics.get("macd_histogram", 0.0) or 0.0
-    sma200 = metrics.get("sma200")
-    vol_ratio = _volume_ratio(bars)
-    # SMA200 structural filter: demote composite by 10% when price is below the 200-day average.
-    below_sma200 = sma200 is not None and current_price < sma200
-    if below_sma200:
-        composite = clamp(composite * 0.90)
-    # Factor alignment: bonus when all three factors independently confirm the signal;
-    # penalty when momentum and sentiment point in opposite directions.
-    _all_aligned = (
-        momentum_score > _FACTOR_ALIGN_THRESHOLD
-        and sentiment_score > _FACTOR_ALIGN_THRESHOLD
-        and earnings_score > _FACTOR_ALIGN_THRESHOLD
-    )
-    _momo_sentiment_diverge = (
-        momentum_score > _FACTOR_ALIGN_THRESHOLD and sentiment_score < -_FACTOR_ALIGN_THRESHOLD
-    ) or (
-        sentiment_score > _FACTOR_ALIGN_THRESHOLD and momentum_score < -_FACTOR_ALIGN_THRESHOLD
-    )
-    if _all_aligned:
-        composite = clamp(composite * _FACTOR_ALIGN_BONUS)
-    elif _momo_sentiment_diverge:
-        composite = clamp(composite * _FACTOR_ALIGN_PENALTY)
     stop_price = current_price * (1.0 - stop_loss_pct)
-    # Target at 1.75× the stop distance gives a ~1.75:1 reward-to-risk ratio,
-    # consistent with the default 14% take-profit in the backtest engine.
     target_price = current_price * (1.0 + stop_loss_pct * 1.75)
     if position is not None and position.avg_entry_price > 0:
         stop_price = position.avg_entry_price * (1.0 - stop_loss_pct)
@@ -284,16 +225,6 @@ def build_signal(
         reasons.append("trend is above the 20/50-day moving averages")
     else:
         reasons.append("trend is not clean enough yet")
-    if below_sma200:
-        reasons.append("price is below the 200-day average — structural trend is not fully aligned")
-    if macd_histogram > 0:
-        reasons.append("MACD histogram is positive")
-    elif macd_histogram < 0:
-        reasons.append("MACD histogram is negative")
-    if sentiment_score > 0.15:
-        reasons.append("news tone is positive")
-    elif sentiment_score < -0.15:
-        reasons.append("news tone is negative")
     if earnings_score > 0.15:
         reasons.append("recent earnings surprise is supportive")
     elif earnings_score < -0.15:
@@ -304,42 +235,24 @@ def build_signal(
         reasons.append(f"RSI is elevated ({rsi:.0f}) — waiting for momentum to cool before entry")
     elif rsi < 35:
         reasons.append(f"RSI shows short-term weakness ({rsi:.0f})")
-    if _all_aligned:
-        reasons.append("all three factors independently confirm the signal")
-    elif _momo_sentiment_diverge:
-        reasons.append("momentum and news sentiment are diverging — conviction reduced")
-    if vol_ratio >= 1.5:
-        reasons.append("volume is above its recent average, confirming the move")
-    elif vol_ratio < 0.6:
-        reasons.append("recent volume is below average — treat with caution")
     decision = "watch"
     if position is not None:
-        rsi_overbought_exit = rsi > 82 and position.unrealized_plpc >= 0.05
-        if (
-            current_price <= stop_price
-            or composite < 0.10
-            or momentum_score < -0.20
-            or rsi_overbought_exit
-        ):
+        if current_price <= stop_price or composite < 0.10:
             decision = "sell"
-            if rsi_overbought_exit:
-                reasons.append(f"RSI is extremely overbought ({rsi:.0f}) on a profitable position — selling into strength")
-            else:
-                reasons.append("existing position has lost its edge")
+            reasons.append("existing position has lost its edge")
         else:
             decision = "hold"
             reasons.append("existing position still fits the model")
-    elif composite >= threshold and momentum_score > 0 and trend_ok and not blocked_for_earnings:
+    elif composite >= threshold and not blocked_for_earnings:
         if rsi > 75.0:
             decision = "watch"
         else:
             decision = "buy"
-    headline = news_items[0].headline if news_items else ""
     return SignalScore(
         symbol=symbol,
         price=round(current_price, 2),
         momentum_score=round(momentum_score, 4),
-        sentiment_score=round(sentiment_score, 4),
+        sentiment_score=0.0,
         earnings_score=round(earnings_score, 4),
         composite_score=round(composite, 4),
         decision=decision,
@@ -347,5 +260,5 @@ def build_signal(
         stop_price=round(stop_price, 2),
         target_price=round(target_price, 2),
         next_earnings_date=bundle.upcoming_report_date if bundle else None,
-        headline=headline,
+        headline="",
     )

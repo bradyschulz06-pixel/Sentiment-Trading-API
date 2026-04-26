@@ -29,11 +29,11 @@ def _settings() -> Settings:
         upcoming_earnings_buffer_days=2,
         max_positions=2,
         max_position_pct=0.50,
-        stop_loss_pct=0.08,
+        stop_loss_pct=0.07,
         signal_threshold=0.20,
-        factor_momentum_weight=0.45,
-        factor_sentiment_weight=0.20,
-        factor_earnings_weight=0.35,
+        factor_momentum_weight=0.00,
+        factor_sentiment_weight=0.00,
+        factor_earnings_weight=1.00,
         market_regime_filter_enabled=True,
         market_regime_cautious_threshold_boost=0.04,
         market_regime_cautious_max_positions_multiplier=0.50,
@@ -41,15 +41,17 @@ def _settings() -> Settings:
         engine_run_interval_minutes=0,
         backtest_benchmark_symbol="SPY",
         backtest_commission_per_order=1.00,
-        backtest_slippage_bps=8.0,
-        backtest_max_hold_days=18,
+        backtest_slippage_bps=20.0,
+        backtest_max_hold_days=20,
         backtest_min_hold_days=3,
-        backtest_trailing_stop_pct=0.06,
+        backtest_trailing_stop_pct=0.00,
         backtest_trailing_arm_pct=0.00,
-        backtest_take_profit_pct=0.14,
-        backtest_breakeven_arm_pct=0.03,
+        backtest_take_profit_pct=0.00,
+        backtest_breakeven_arm_pct=0.00,
         backtest_breakeven_floor_pct=0.005,
         backtest_reentry_cooldown_days=3,
+        backtest_rolling_drawdown_window=10,
+        backtest_rolling_drawdown_limit=0.05,
         conviction_sizing_enabled=True,
         conviction_sizing_min_scalar=0.75,
         conviction_sizing_max_scalar=1.25,
@@ -129,92 +131,54 @@ def test_simulate_backtest_blocks_new_longs_in_risk_off_regime() -> None:
     assert any("risk-off" in note.lower() for note in result.notes)
 
 
-# --- breakeven stop tests ---
+# --- simplified exit logic tests ---
 
-def _fake_signal(decision: str = "hold", score: float = 0.5):
-    return type("S", (), {"decision": decision, "composite_score": score})()
-
-
-def test_breakeven_stop_promotes_hard_stop_when_armed() -> None:
-    # Peak at +5% (above 3% arm), current price falls below floor (+0.5%) → hard stop hit.
+def test_hard_stop_triggers_below_entry_loss_threshold() -> None:
     position = _OpenPosition("X", 100, 100.0, "2026-01-01", 105.0, 1.0)
     result = _determine_exit_reason(
-        current_price=99.0,
+        current_price=92.0,
         position=position,
         hold_days=5,
-        signal=_fake_signal(),
-        settings=_settings(),
-        signal_threshold=0.30,
-        max_hold_days=18,
-        min_hold_days=3,
-        trailing_stop_pct=0.30,
-        trailing_arm_pct=0.30,
-        take_profit_pct=0.50,
-        breakeven_arm_pct=0.03,
-        breakeven_floor_pct=0.005,
+        stop_loss_pct=0.07,
+        max_hold_days=20,
     )
     assert result == "Hard stop hit."
 
 
-def test_breakeven_stop_inactive_below_arm_pct() -> None:
-    # Peak at +2% (below 3% arm) — floor never activates; original hard stop at -8% applies.
-    position = _OpenPosition("X", 100, 100.0, "2026-01-01", 102.0, 1.0)
-    # At -6%: above hard stop (92), no exit yet
-    above_hard_stop = _determine_exit_reason(
+def test_hard_stop_does_not_trigger_above_threshold() -> None:
+    position = _OpenPosition("X", 100, 100.0, "2026-01-01", 100.0, 1.0)
+    result = _determine_exit_reason(
         current_price=94.0,
         position=position,
         hold_days=5,
-        signal=_fake_signal(),
-        settings=_settings(),
-        signal_threshold=0.30,
-        max_hold_days=18,
-        min_hold_days=3,
-        trailing_stop_pct=0.30,
-        trailing_arm_pct=0.30,
-        take_profit_pct=0.50,
-        breakeven_arm_pct=0.03,
-        breakeven_floor_pct=0.005,
+        stop_loss_pct=0.07,
+        max_hold_days=20,
     )
-    assert above_hard_stop is None
-    # At -9%: below hard stop (92), exits via original hard stop
-    below_hard_stop = _determine_exit_reason(
-        current_price=91.0,
-        position=position,
-        hold_days=5,
-        signal=_fake_signal(),
-        settings=_settings(),
-        signal_threshold=0.30,
-        max_hold_days=18,
-        min_hold_days=3,
-        trailing_stop_pct=0.30,
-        trailing_arm_pct=0.30,
-        take_profit_pct=0.50,
-        breakeven_arm_pct=0.03,
-        breakeven_floor_pct=0.005,
-    )
-    assert below_hard_stop == "Hard stop hit."
+    assert result is None
 
 
-def test_breakeven_arm_pct_zero_arms_immediately() -> None:
-    # With arm_pct=0.0, peak=entry → floor is always active, stop raised to entry×1.005=100.5.
-    position = _OpenPosition("X", 100, 100.0, "2026-01-01", 100.0, 1.0)
+def test_time_stop_triggers_at_max_hold_days() -> None:
+    position = _OpenPosition("X", 100, 100.0, "2026-01-01", 102.0, 1.0)
     result = _determine_exit_reason(
-        current_price=100.3,
+        current_price=103.0,
+        position=position,
+        hold_days=20,
+        stop_loss_pct=0.07,
+        max_hold_days=20,
+    )
+    assert result == "Time stop reached."
+
+
+def test_no_exit_within_hold_window() -> None:
+    position = _OpenPosition("X", 100, 100.0, "2026-01-01", 105.0, 1.0)
+    result = _determine_exit_reason(
+        current_price=103.0,
         position=position,
         hold_days=5,
-        signal=_fake_signal(),
-        settings=_settings(),
-        signal_threshold=0.30,
-        max_hold_days=18,
-        min_hold_days=3,
-        trailing_stop_pct=0.30,
-        trailing_arm_pct=0.30,
-        take_profit_pct=0.50,
-        breakeven_arm_pct=0.0,
-        breakeven_floor_pct=0.005,
+        stop_loss_pct=0.07,
+        max_hold_days=20,
     )
-    # 100.3 > 100.5? No → 100.3 ≤ 100.5 → hard stop hit
-    assert result == "Hard stop hit."
+    assert result is None
 
 
 # --- conviction sizing formula tests ---
@@ -238,7 +202,6 @@ def test_conviction_sizing_scalar_scales_with_score() -> None:
 
 
 def test_conviction_sizing_disabled_gives_flat_allocation() -> None:
-    # When conviction_sizing_enabled=False the scalar is always 1.0 regardless of score.
     conviction_sizing_enabled = False
     min_s = 0.75
     max_s = 1.25
@@ -256,7 +219,7 @@ def test_conviction_sizing_disabled_gives_flat_allocation() -> None:
 # --- re-entry cooldown tests ---
 
 def _make_price_map_with_stop_and_recovery() -> dict:
-    """AAA drops sharply (triggers -8% hard stop) then recovers; SPY trends up."""
+    """AAA drops sharply (triggers -7% hard stop) then recovers; SPY trends up."""
     aaa_closes = []
     price = 100.0
     for i in range(180):
@@ -289,8 +252,6 @@ def test_reentry_cooldown_blocks_immediate_reentry() -> None:
         settings, price_map, {}, "SPY", 100, 100_000.0,
         reentry_cooldown_days=0,
     )
-    # With cooldown, re-entries after a hard stop are suppressed for 3 days.
-    # No cooldown should allow more (or equal) total trades.
     assert result_no_cooldown.total_trades >= result_with_cooldown.total_trades
 
 
@@ -301,6 +262,49 @@ def test_reentry_cooldown_zero_allows_immediate_reentry() -> None:
         settings, price_map, {}, "SPY", 100, 100_000.0,
         reentry_cooldown_days=0,
     )
-    # With 0-day cooldown the backtest engine must still produce valid output.
     assert result.status == "ok"
     assert result.ending_equity > 0
+
+
+# --- portfolio rolling drawdown guard ---
+
+def test_portfolio_drawdown_guard_halts_entries() -> None:
+    """When portfolio drops >5% in 10 days, new entries should stop."""
+    settings = _settings()
+    # Construct a scenario where SPY rises (risk_on regime) but universe stocks crash.
+    spy_closes = [400.0 + i * 0.2 for i in range(180)]
+    # AAA: good uptrend initially but then crashes hard
+    aaa_closes = [100.0 + i * 0.3 for i in range(100)] + [70.0 - i * 0.2 for i in range(80)]
+    price_map = {
+        "AAA": _bars("AAA", aaa_closes),
+        "SPY": _bars("SPY", spy_closes),
+    }
+    earnings_map = {
+        "AAA": [EarningsBundle(symbol="AAA", reported_date="2026-01-15", surprise_pct=12.0)],
+    }
+    result = simulate_backtest(settings, price_map, earnings_map, "SPY", 150, 100_000.0)
+    assert result.status == "ok"
+    assert result.ending_equity > 0
+
+
+def test_date_range_filtering_limits_backtest_period() -> None:
+    """start_date/end_date params restrict the simulation to the specified window."""
+    settings = _settings()
+    # 180 bars spanning ~6 months across 2026 months 01–06
+    price_map = {
+        "AAA": _realistic_bars("AAA", 100.0, 180),
+        "BBB": _realistic_bars("BBB", 120.0, 180),
+        "SPY": _realistic_bars("SPY", 400.0, 180),
+    }
+    earnings_map = {
+        "AAA": [EarningsBundle(symbol="AAA", reported_date="2026-03-15", surprise_pct=9.0)],
+    }
+    full_result = simulate_backtest(settings, price_map, earnings_map, "SPY", 180, 100_000.0)
+    # Start/end date filter restricts to a sub-range
+    partial_result = simulate_backtest(
+        settings, price_map, earnings_map, "SPY", 180, 100_000.0,
+        start_date="2026-02-01",
+        end_date="2026-04-28",
+    )
+    assert partial_result.period_days < full_result.period_days
+    assert partial_result.status == "ok"

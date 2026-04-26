@@ -5,8 +5,7 @@ import httpx
 from app.config import Settings
 from app.db import get_connection, initialize_database, save_run, utc_now_iso
 from app.models import EngineRunResult, PositionSnapshot, SignalScore, TradeIntent
-from app.scoring import build_signal, compute_momentum_score, compute_position_vol_scalar, normalize_factor_weights
-from app.sentiment import aggregate_news_sentiment
+from app.scoring import build_signal, compute_momentum_score, compute_position_vol_scalar
 from app.services.alpaca import AlpacaService
 from app.services.alpha_vantage import AlphaVantageService
 from app.services.market_regime import apply_market_regime_to_signal, evaluate_market_regime
@@ -179,7 +178,6 @@ class TradingEngine:
             return result
         positions: list[PositionSnapshot] = []
         signals: list[SignalScore] = []
-        all_news = []
         with get_connection(self.settings) as conn:
             try:
                 account = self.alpaca.get_account()
@@ -211,15 +209,9 @@ class TradingEngine:
                 save_run(conn, result)
                 return result
             position_map = {position.symbol: position for position in positions}
-            # (momentum_score, news_score, symbol, bars, news_items)
-            pre_rank: list[tuple[float, float, str, list, list]] = []
+            pre_rank: list[tuple[float, str, list]] = []
             price_map: dict[str, list] = {}
             universe = get_universe(self.settings.universe_symbols, self.settings.universe_preset)
-            momentum_weight, sentiment_weight, earnings_weight = normalize_factor_weights(
-                self.settings.factor_momentum_weight,
-                self.settings.factor_sentiment_weight,
-                self.settings.factor_earnings_weight,
-            )
             benchmark_symbol = self.settings.backtest_benchmark_symbol
             try:
                 benchmark_bars = self.alpaca.get_daily_bars(benchmark_symbol, self.settings.lookback_days)
@@ -239,25 +231,15 @@ class TradingEngine:
                         warnings.append(f"{symbol}: not enough price history to score cleanly.")
                         continue
                     price_map[symbol] = bars
-                    news_items = self.alpaca.get_news(symbol, self.settings.news_window_days)
                     momentum_score, momo_metrics = compute_momentum_score(bars)
                     ret21_map[symbol] = momo_metrics.get("ret21", 0.0)
-                    news_score = aggregate_news_sentiment(news_items)
-                    pre_rank.append((momentum_score, news_score, symbol, bars, news_items))
-                    all_news.extend(news_items[:2])
+                    pre_rank.append((momentum_score, symbol, bars))
                 except Exception as exc:  # noqa: BLE001
                     warnings.append(f"{symbol}: data fetch failed ({exc}).")
-            from app.db import get_last_regime_label
-            previous_regime_label = get_last_regime_label(conn)
-            regime = evaluate_market_regime(self.settings, benchmark_symbol, benchmark_bars, price_map, previous_label=previous_regime_label)
+            regime = evaluate_market_regime(self.settings, benchmark_symbol, benchmark_bars, price_map)
             warnings.insert(0, regime.to_warning())
-            # Select earnings-lookup candidates from both momentum leaders and news leaders
-            # so neither factor crowds the other out of the expensive API budget.
-            half = max(1, self.settings.earnings_lookup_limit // 2)
-            top_by_momentum = sorted(pre_rank, key=lambda item: item[0], reverse=True)
-            top_by_news = sorted(pre_rank, key=lambda item: item[1], reverse=True)
-            alpha_symbols: set[str] = {item[2] for item in top_by_momentum[:half]}
-            alpha_symbols.update(item[2] for item in top_by_news[:half])
+            # Fetch earnings for ALL pre-ranked symbols since earnings is the sole signal.
+            alpha_symbols: set[str] = {item[1] for item in pre_rank}
             alpha_symbols.update(position.symbol for position in positions)
             earnings_map = {}
             for symbol in alpha_symbols:
@@ -269,18 +251,14 @@ class TradingEngine:
                 except Exception as exc:  # noqa: BLE001
                     warnings.append(f"{symbol}: earnings lookup failed ({exc}).")
             effective_threshold = regime.effective_signal_threshold(self.settings.signal_threshold)
-            for _, _news, symbol, bars, news_items in pre_rank:
+            for _, symbol, bars in pre_rank:
                 signal = build_signal(
                     symbol=symbol,
                     bars=bars,
-                    news_items=news_items,
                     bundle=earnings_map.get(symbol),
                     threshold=effective_threshold,
                     stop_loss_pct=self.settings.stop_loss_pct,
                     upcoming_earnings_buffer_days=self.settings.upcoming_earnings_buffer_days,
-                    momentum_weight=momentum_weight,
-                    sentiment_weight=sentiment_weight,
-                    earnings_weight=earnings_weight,
                     position=position_map.get(symbol),
                 )
                 signal = apply_market_regime_to_signal(signal, regime, self.settings.signal_threshold)
@@ -320,7 +298,6 @@ class TradingEngine:
                 completed_at=utc_now_iso(),
                 trigger=trigger,
                 signals=signals,
-                news_items=sorted(all_news, key=lambda item: item.published_at, reverse=True)[:25],
                 positions=positions,
                 trades=executed_trades,
                 warnings=warnings,

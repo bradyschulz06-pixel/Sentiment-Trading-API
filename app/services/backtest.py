@@ -7,7 +7,7 @@ import math
 from app.config import Settings
 from app.db import get_connection, initialize_database
 from app.models import BacktestPoint, BacktestResult, BacktestTrade, EarningsBundle, PositionSnapshot, PriceBar
-from app.scoring import _compute_rsi, build_signal, compute_position_vol_scalar, normalize_factor_weights
+from app.scoring import build_signal, compute_position_vol_scalar
 from app.services.alpaca import AlpacaService
 from app.services.alpha_vantage import AlphaVantageService
 from app.services.market_regime import apply_market_regime_to_signal, evaluate_market_regime
@@ -128,44 +128,14 @@ def _determine_exit_reason(
     current_price: float,
     position: _OpenPosition,
     hold_days: int,
-    signal,
-    settings: Settings,
-    signal_threshold: float,
+    stop_loss_pct: float,
     max_hold_days: int,
-    min_hold_days: int,
-    trailing_stop_pct: float,
-    trailing_arm_pct: float,
-    take_profit_pct: float,
-    rsi: float = 50.0,
-    breakeven_arm_pct: float = 0.03,
-    breakeven_floor_pct: float = 0.005,
 ) -> str | None:
-    hard_stop_price = position.entry_price * (1.0 - settings.stop_loss_pct)
-    trailing_stop_price = position.peak_price * (1.0 - trailing_stop_pct)
-    take_profit_price = position.entry_price * (1.0 + take_profit_pct)
-    trailing_armed = position.peak_price >= position.entry_price * (1.0 + trailing_arm_pct)
-    unrealized_return = (current_price - position.entry_price) / max(position.entry_price, 1e-6)
-    # Promote hard stop to breakeven floor once peak gain has ever exceeded the arm threshold.
-    # Using peak_price (not current_price) makes the floor permanent once armed.
-    breakeven_floor_price = position.entry_price * (1.0 + breakeven_floor_pct)
-    peak_return = (position.peak_price - position.entry_price) / max(position.entry_price, 1e-6)
-    if peak_return >= breakeven_arm_pct and hard_stop_price < breakeven_floor_price:
-        hard_stop_price = breakeven_floor_price
-
+    hard_stop_price = position.entry_price * (1.0 - stop_loss_pct)
     if current_price <= hard_stop_price:
         return "Hard stop hit."
-    if hold_days >= min_hold_days and trailing_armed and current_price <= trailing_stop_price:
-        return "Trailing stop hit."
-    if hold_days >= min_hold_days and current_price >= take_profit_price:
-        return "Profit target reached."
     if hold_days >= max_hold_days:
         return "Time stop reached."
-    # Sell into strength: exit a profitable position when RSI reaches extreme overbought territory
-    # to avoid giving back gains on a sharp reversal.
-    if hold_days >= min_hold_days and rsi > 82 and unrealized_return >= 0.05:
-        return "RSI overbought exit on profitable position."
-    if hold_days >= min_hold_days and (signal.decision == "sell" or signal.composite_score < max(0.05, signal_threshold * 0.55)):
-        return "Signal quality faded."
     return None
 
 
@@ -179,45 +149,36 @@ def simulate_backtest(
     *,
     universe_preset: str | None = None,
     signal_threshold: float | None = None,
-    factor_momentum_weight: float | None = None,
-    factor_sentiment_weight: float | None = None,
-    factor_earnings_weight: float | None = None,
     commission_per_order: float | None = None,
     slippage_bps: float | None = None,
     max_hold_days: int | None = None,
-    min_hold_days: int | None = None,
-    trailing_stop_pct: float | None = None,
-    trailing_arm_pct: float | None = None,
-    take_profit_pct: float | None = None,
-    breakeven_arm_pct: float | None = None,
-    breakeven_floor_pct: float | None = None,
     reentry_cooldown_days: int | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> BacktestResult:
     universe_preset = normalize_universe_preset(universe_preset or settings.universe_preset)
     universe_meta = get_universe_presets()[universe_preset]
     signal_threshold = settings.signal_threshold if signal_threshold is None else min(max(signal_threshold, 0.05), 0.95)
-    factor_momentum_weight, factor_sentiment_weight, factor_earnings_weight = normalize_factor_weights(
-        settings.factor_momentum_weight if factor_momentum_weight is None else factor_momentum_weight,
-        settings.factor_sentiment_weight if factor_sentiment_weight is None else factor_sentiment_weight,
-        settings.factor_earnings_weight if factor_earnings_weight is None else factor_earnings_weight,
-    )
     commission_per_order = settings.backtest_commission_per_order if commission_per_order is None else max(0.0, commission_per_order)
     slippage_bps = settings.backtest_slippage_bps if slippage_bps is None else max(0.0, slippage_bps)
     max_hold_days = settings.backtest_max_hold_days if max_hold_days is None else max(2, max_hold_days)
-    min_hold_days = settings.backtest_min_hold_days if min_hold_days is None else max(1, min_hold_days)
-    trailing_stop_pct = settings.backtest_trailing_stop_pct if trailing_stop_pct is None else max(0.01, trailing_stop_pct)
-    trailing_arm_pct = settings.backtest_trailing_arm_pct if trailing_arm_pct is None else max(0.0, trailing_arm_pct)
-    take_profit_pct = settings.backtest_take_profit_pct if take_profit_pct is None else max(0.01, take_profit_pct)
-    breakeven_arm_pct = settings.backtest_breakeven_arm_pct if breakeven_arm_pct is None else max(0.0, breakeven_arm_pct)
-    breakeven_floor_pct = settings.backtest_breakeven_floor_pct if breakeven_floor_pct is None else max(0.0, breakeven_floor_pct)
     reentry_cooldown_days = settings.backtest_reentry_cooldown_days if reentry_cooldown_days is None else max(0, reentry_cooldown_days)
-    min_hold_days = min(min_hold_days, max_hold_days)
+    rolling_window = settings.backtest_rolling_drawdown_window
+    rolling_limit = settings.backtest_rolling_drawdown_limit
 
     benchmark_bars = price_map.get(benchmark_symbol, [])
-    if len(benchmark_bars) < max(2, period_days):
+    if len(benchmark_bars) < 2:
         raise RuntimeError("Not enough benchmark price history to run the backtest.")
 
-    ordered_dates = [_date_key(bar.timestamp) for bar in benchmark_bars][-period_days:]
+    all_benchmark_dates = [_date_key(bar.timestamp) for bar in benchmark_bars]
+    if start_date is not None and end_date is not None:
+        ordered_dates = [d for d in all_benchmark_dates if start_date <= d <= end_date]
+    else:
+        ordered_dates = all_benchmark_dates[-period_days:]
+
+    if len(ordered_dates) < 2:
+        raise RuntimeError("Not enough benchmark price history to run the backtest.")
+
     date_index = {stamp: index for index, stamp in enumerate(ordered_dates)}
     bar_lookup = {
         symbol: {_date_key(bar.timestamp): bar for bar in bars}
@@ -229,20 +190,21 @@ def simulate_backtest(
     _stop_cooldown: dict[str, str] = {}
     closed_trades: list[BacktestTrade] = []
     daily_points: list[BacktestPoint] = []
-    regime_counts = {"supportive": 0, "cautious": 0, "risk_off": 0, "inactive": 0}
+    regime_counts: dict[str, int] = {}
     cash = starting_capital
-    benchmark_start = benchmark_bars[-period_days].close
+    first_benchmark_bar = benchmark_lookup.get(ordered_dates[0])
+    benchmark_start = first_benchmark_bar.close if first_benchmark_bar else benchmark_bars[0].close
     benchmark_shares = starting_capital / benchmark_start if benchmark_start else 0.0
-    # Minimum bars a symbol must have before it is eligible for entry.
-    # Config override (BACKTEST_MIN_BARS) wins; otherwise floor at 65 or period/3.
     min_bars = settings.backtest_min_bars if settings.backtest_min_bars > 0 else max(65, period_days // 3)
+    portfolio_drawdown_active = False
 
     for current_date in ordered_dates:
         candidate_signals = []
         current_prices: dict[str, float] = {}
         symbol_bars: dict[str, list[PriceBar]] = {}
         earnings_by_symbol: dict[str, EarningsBundle | None] = {}
-        current_benchmark_price = benchmark_lookup[current_date].close
+        current_benchmark_bar = benchmark_lookup.get(current_date)
+        current_benchmark_price = current_benchmark_bar.close if current_benchmark_bar else benchmark_start
         benchmark_symbol_bars = [bar for bar in benchmark_bars if _date_key(bar.timestamp) <= current_date]
 
         for symbol, bars in price_map.items():
@@ -279,14 +241,10 @@ def simulate_backtest(
             signal = build_signal(
                 symbol=symbol,
                 bars=filtered_bars,
-                news_items=[],
                 bundle=earnings_bundle,
                 threshold=effective_threshold,
                 stop_loss_pct=settings.stop_loss_pct,
                 upcoming_earnings_buffer_days=0,
-                momentum_weight=factor_momentum_weight,
-                sentiment_weight=factor_sentiment_weight,
-                earnings_weight=factor_earnings_weight,
                 position=position_snapshot,
                 today=date.fromisoformat(current_date),
             )
@@ -295,22 +253,12 @@ def simulate_backtest(
             if open_position is not None:
                 open_position.peak_price = max(open_position.peak_price, current_price)
                 hold_days = _holding_days(date_index, open_position.entry_date, current_date)
-                closes = [bar.close for bar in filtered_bars]
                 exit_reason = _determine_exit_reason(
                     current_price=current_price,
                     position=open_position,
                     hold_days=hold_days,
-                    signal=signal,
-                    settings=settings,
-                    signal_threshold=signal_threshold,
+                    stop_loss_pct=settings.stop_loss_pct,
                     max_hold_days=max_hold_days,
-                    min_hold_days=min_hold_days,
-                    trailing_stop_pct=trailing_stop_pct,
-                    trailing_arm_pct=trailing_arm_pct,
-                    take_profit_pct=take_profit_pct,
-                    rsi=_compute_rsi(closes),
-                    breakeven_arm_pct=breakeven_arm_pct,
-                    breakeven_floor_pct=breakeven_floor_pct,
                 )
                 if exit_reason:
                     exit_price = _apply_slippage(current_price, "sell", slippage_bps)
@@ -336,7 +284,7 @@ def simulate_backtest(
                         )
                     )
                     del open_positions[symbol]
-                    if reentry_cooldown_days > 0 and exit_reason in {"Hard stop hit.", "Trailing stop hit."}:
+                    if reentry_cooldown_days > 0 and exit_reason == "Hard stop hit.":
                         next_idx = date_index[current_date] + reentry_cooldown_days
                         _stop_cooldown[symbol] = ordered_dates[next_idx] if next_idx < len(ordered_dates) else ordered_dates[-1]
                 continue
@@ -346,8 +294,18 @@ def simulate_backtest(
 
         candidate_signals.sort(key=lambda item: item.composite_score, reverse=True)
         current_equity = cash + sum(position.qty * current_prices.get(symbol, position.entry_price) for symbol, position in open_positions.items())
+
+        # Rolling portfolio drawdown guard: halt new entries if down >rolling_limit in the last rolling_window days.
+        if len(daily_points) >= rolling_window:
+            past_equity = daily_points[-rolling_window].equity
+            rolling_ret = (current_equity / past_equity) - 1.0 if past_equity > 0 else 0.0
+            if rolling_ret < -rolling_limit:
+                portfolio_drawdown_active = True
+            elif portfolio_drawdown_active and rolling_ret > -0.02:
+                portfolio_drawdown_active = False
+
         effective_max_positions = regime.effective_max_positions(settings.max_positions)
-        open_slots = max(0, effective_max_positions - len(open_positions))
+        open_slots = 0 if portfolio_drawdown_active else max(0, effective_max_positions - len(open_positions))
         base_budget = current_equity * settings.max_position_pct
 
         for signal in candidate_signals:
@@ -359,7 +317,6 @@ def simulate_backtest(
                 continue
             raw_price = current_prices.get(signal.symbol, signal.price)
             entry_price = _apply_slippage(raw_price, "buy", slippage_bps)
-            # Scale position budget by realized vol so high-vol stocks get smaller allocations.
             vol_scalar = compute_position_vol_scalar(symbol_bars.get(signal.symbol, []))
             if settings.conviction_sizing_enabled:
                 threshold_range = max(1.0 - signal_threshold, 0.01)
@@ -447,13 +404,14 @@ def simulate_backtest(
     sharpe = _sharpe_ratio(daily_points)
     sortino = _sortino_ratio(daily_points)
     strategy_chart_points, benchmark_chart_points = _comparison_chart_points(daily_points)
+    actual_period_days = len(ordered_dates)
 
     return BacktestResult(
         status="ok",
-        summary=f"Simulated {len(closed_trades)} completed trades across {period_days} trading days with slippage and commissions.",
+        summary=f"Simulated {len(closed_trades)} completed trades across {actual_period_days} trading days with slippage and commissions.",
         start_date=ordered_dates[0],
         end_date=ordered_dates[-1],
-        period_days=period_days,
+        period_days=actual_period_days,
         starting_capital=round(starting_capital, 2),
         ending_equity=round(ending_equity, 2),
         total_return_pct=round(total_return_pct, 4),
@@ -464,9 +422,9 @@ def simulate_backtest(
         universe_preset=universe_preset,
         universe_label=universe_meta["label"],
         signal_threshold=round(signal_threshold, 4),
-        factor_momentum_weight=round(factor_momentum_weight, 4),
-        factor_sentiment_weight=round(factor_sentiment_weight, 4),
-        factor_earnings_weight=round(factor_earnings_weight, 4),
+        factor_momentum_weight=0.0,
+        factor_sentiment_weight=0.0,
+        factor_earnings_weight=1.0,
         total_trades=len(closed_trades),
         win_rate_pct=round((len(winning_trades) / len(closed_trades)), 4) if closed_trades else 0.0,
         average_trade_return_pct=round(average_trade_return_pct, 4),
@@ -478,23 +436,21 @@ def simulate_backtest(
         commission_per_order=round(commission_per_order, 2),
         slippage_bps=round(slippage_bps, 2),
         max_hold_days=max_hold_days,
-        min_hold_days=min_hold_days,
-        trailing_stop_pct=round(trailing_stop_pct, 4),
-        trailing_arm_pct=round(trailing_arm_pct, 4),
-        take_profit_pct=round(take_profit_pct, 4),
+        min_hold_days=settings.backtest_min_hold_days,
+        trailing_stop_pct=0.0,
+        trailing_arm_pct=0.0,
+        take_profit_pct=0.0,
         notes=[
             f"Universe preset: {universe_meta['label']} ({len(price_map) - 1} tradable symbols in this replay set).",
-            f"Composite weights were momentum {factor_momentum_weight * 100:.0f}%, sentiment {factor_sentiment_weight * 100:.0f}%, and earnings {factor_earnings_weight * 100:.0f}% with a {signal_threshold:.2f} buy threshold.",
+            f"PEAD-only composite (earnings score) with a {signal_threshold:.2f} buy threshold.",
             (
                 "Market regime filter counted "
-                f"{regime_counts.get('supportive', 0)} supportive days, "
-                f"{regime_counts.get('cautious', 0)} cautious days, and "
+                f"{regime_counts.get('risk_on', 0)} risk-on days and "
                 f"{regime_counts.get('risk_off', 0)} risk-off days."
             ),
             f"Each order assumes ${commission_per_order:.2f} commission and {slippage_bps:.2f} bps of slippage.",
-            f"Exit model uses {max_hold_days} max hold days, {trailing_stop_pct * 100:.1f}% trailing stop armed after {trailing_arm_pct * 100:.1f}% profit, and {take_profit_pct * 100:.1f}% profit take.",
-            "Historical news sentiment is excluded from replay to avoid pretending we have cheap point-in-time news coverage.",
-            "Historical earnings surprise is replayed only after each reported date becomes known.",
+            f"Exit model: hard stop at {settings.stop_loss_pct * 100:.1f}% below entry, time stop at {max_hold_days} days.",
+            "Historical earnings surprise replayed only after each reported date becomes known.",
         ],
         trades=closed_trades[::-1],
         daily_points=daily_points,
@@ -534,16 +490,9 @@ class BacktestService:
         *,
         universe_preset: str | None = None,
         signal_threshold: float | None = None,
-        factor_momentum_weight: float | None = None,
-        factor_sentiment_weight: float | None = None,
-        factor_earnings_weight: float | None = None,
         commission_per_order: float | None = None,
         slippage_bps: float | None = None,
         max_hold_days: int | None = None,
-        min_hold_days: int | None = None,
-        trailing_stop_pct: float | None = None,
-        trailing_arm_pct: float | None = None,
-        take_profit_pct: float | None = None,
         benchmark_symbol: str | None = None,
     ) -> BacktestResult:
         if not self.settings.trading_configured:
@@ -565,14 +514,7 @@ class BacktestService:
             starting_capital=starting_capital,
             universe_preset=universe_preset,
             signal_threshold=signal_threshold,
-            factor_momentum_weight=factor_momentum_weight,
-            factor_sentiment_weight=factor_sentiment_weight,
-            factor_earnings_weight=factor_earnings_weight,
             commission_per_order=commission_per_order,
             slippage_bps=slippage_bps,
             max_hold_days=max_hold_days,
-            min_hold_days=min_hold_days,
-            trailing_stop_pct=trailing_stop_pct,
-            trailing_arm_pct=trailing_arm_pct,
-            take_profit_pct=take_profit_pct,
         )

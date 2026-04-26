@@ -111,6 +111,8 @@ class Settings:
     backtest_breakeven_arm_pct: float
     backtest_breakeven_floor_pct: float
     backtest_reentry_cooldown_days: int
+    backtest_rolling_drawdown_window: int
+    backtest_rolling_drawdown_limit: float
     conviction_sizing_enabled: bool
     conviction_sizing_min_scalar: float
     conviction_sizing_max_scalar: float
@@ -157,13 +159,13 @@ def get_settings() -> Settings:
         earnings_lookup_limit=_env_int("EARNINGS_LOOKUP_LIMIT", 8),
         upcoming_earnings_buffer_days=_env_int("UPCOMING_EARNINGS_BUFFER_DAYS", 2),
         backtest_min_bars=_env_int("BACKTEST_MIN_BARS", 0),
-        max_positions=_env_int("MAX_POSITIONS", 5),
-        max_position_pct=_env_float_clamp("MAX_POSITION_PCT", 0.10, 0.01, 0.50),
-        stop_loss_pct=_env_float_clamp("STOP_LOSS_PCT", 0.08, 0.01, 0.30),
+        max_positions=_env_int("MAX_POSITIONS", 4),
+        max_position_pct=_env_float_clamp("MAX_POSITION_PCT", 0.08, 0.01, 0.50),
+        stop_loss_pct=_env_float_clamp("STOP_LOSS_PCT", 0.07, 0.01, 0.30),
         signal_threshold=_env_float_clamp("SIGNAL_THRESHOLD", 0.30, 0.05, 0.95),
-        factor_momentum_weight=_env_float_clamp("FACTOR_MOMENTUM_WEIGHT", 0.40, 0.0, 1.0),
-        factor_sentiment_weight=_env_float_clamp("FACTOR_SENTIMENT_WEIGHT", 0.25, 0.0, 1.0),
-        factor_earnings_weight=_env_float_clamp("FACTOR_EARNINGS_WEIGHT", 0.35, 0.0, 1.0),
+        factor_momentum_weight=_env_float_clamp("FACTOR_MOMENTUM_WEIGHT", 0.00, 0.0, 1.0),
+        factor_sentiment_weight=_env_float_clamp("FACTOR_SENTIMENT_WEIGHT", 0.00, 0.0, 1.0),
+        factor_earnings_weight=_env_float_clamp("FACTOR_EARNINGS_WEIGHT", 1.00, 0.0, 1.0),
         market_regime_filter_enabled=_env_bool("MARKET_REGIME_FILTER_ENABLED", True),
         market_regime_cautious_threshold_boost=_env_float_clamp("MARKET_REGIME_CAUTIOUS_THRESHOLD_BOOST", 0.04, 0.0, 0.50),
         market_regime_cautious_max_positions_multiplier=_env_float_clamp("MARKET_REGIME_CAUTIOUS_MAX_POSITIONS_MULTIPLIER", 0.50, 0.0, 1.0),
@@ -171,15 +173,17 @@ def get_settings() -> Settings:
         engine_run_interval_minutes=_env_int("ENGINE_RUN_INTERVAL_MINUTES", 0),
         backtest_benchmark_symbol=os.getenv("BACKTEST_BENCHMARK_SYMBOL", "SPY").strip().upper() or "SPY",
         backtest_commission_per_order=_env_float("BACKTEST_COMMISSION_PER_ORDER", 1.00),
-        backtest_slippage_bps=_env_float("BACKTEST_SLIPPAGE_BPS", 8.0),
-        backtest_max_hold_days=_env_int("BACKTEST_MAX_HOLD_DAYS", 18),
+        backtest_slippage_bps=_env_float("BACKTEST_SLIPPAGE_BPS", 20.0),
+        backtest_max_hold_days=_env_int("BACKTEST_MAX_HOLD_DAYS", 20),
         backtest_min_hold_days=_env_int("BACKTEST_MIN_HOLD_DAYS", 3),
-        backtest_trailing_stop_pct=_env_float("BACKTEST_TRAILING_STOP_PCT", 0.06),
+        backtest_trailing_stop_pct=_env_float("BACKTEST_TRAILING_STOP_PCT", 0.00),
         backtest_trailing_arm_pct=_env_float("BACKTEST_TRAILING_ARM_PCT", 0.00),
-        backtest_take_profit_pct=_env_float("BACKTEST_TAKE_PROFIT_PCT", 0.14),
-        backtest_breakeven_arm_pct=_env_float_clamp("BACKTEST_BREAKEVEN_ARM_PCT", 0.03, 0.0, 0.20),
+        backtest_take_profit_pct=_env_float("BACKTEST_TAKE_PROFIT_PCT", 0.00),
+        backtest_breakeven_arm_pct=_env_float_clamp("BACKTEST_BREAKEVEN_ARM_PCT", 0.00, 0.0, 0.20),
         backtest_breakeven_floor_pct=_env_float_clamp("BACKTEST_BREAKEVEN_FLOOR_PCT", 0.005, 0.0, 0.05),
         backtest_reentry_cooldown_days=_env_int("BACKTEST_REENTRY_COOLDOWN_DAYS", 3),
+        backtest_rolling_drawdown_window=_env_int("BACKTEST_ROLLING_DRAWDOWN_WINDOW", 10),
+        backtest_rolling_drawdown_limit=_env_float_clamp("BACKTEST_ROLLING_DRAWDOWN_LIMIT", 0.05, 0.01, 0.20),
         conviction_sizing_enabled=_env_bool("CONVICTION_SIZING_ENABLED", True),
         conviction_sizing_min_scalar=_env_float_clamp("CONVICTION_SIZING_MIN_SCALAR", 0.75, 0.10, 1.00),
         conviction_sizing_max_scalar=_env_float_clamp("CONVICTION_SIZING_MAX_SCALAR", 1.25, 1.00, 2.00),

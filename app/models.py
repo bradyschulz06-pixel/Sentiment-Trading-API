@@ -285,3 +285,63 @@ class PaperJournalResult:
     factor_summaries: list[JournalFactorSummary] = field(default_factory=list)
     recent_orders: list[JournalOrderActivity] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ValidationFold:
+    fold_index: int
+    train_start: str
+    train_end: str
+    test_start: str
+    test_end: str
+    best_threshold: float
+    test_return_pct: float
+    test_sharpe: float
+    test_max_drawdown_pct: float
+    test_win_rate_pct: float
+    test_total_trades: int
+    passed: bool
+
+
+@dataclass(slots=True)
+class Gate1Result:
+    folds: list[ValidationFold]
+    positive_period_count: int
+    average_sharpe: float
+    worst_period_drawdown_pct: float
+    average_trades_per_period: float
+    passed: bool
+    failure_reason: str
+
+
+@dataclass(slots=True)
+class Gate2Result:
+    holdout_return_pct: float
+    holdout_max_drawdown_pct: float
+    passed: bool
+    failure_reason: str
+
+
+@dataclass(slots=True)
+class Gate3Result:
+    strategy_sharpe: float
+    benchmark_sharpe: float
+    strategy_max_drawdown_pct: float
+    benchmark_max_drawdown_pct: float
+    strategy_calmar: float
+    benchmark_calmar: float
+    strategy_2022_return_pct: float
+    benchmark_2022_return_pct: float
+    strategy_win_rate_pct: float
+    metrics_won: int
+    passed: bool
+
+
+@dataclass(slots=True)
+class ValidationResult:
+    status: str
+    gate1: Gate1Result | None
+    gate2: Gate2Result | None
+    gate3: Gate3Result | None
+    overall_passed: bool
+    recommendation: str
