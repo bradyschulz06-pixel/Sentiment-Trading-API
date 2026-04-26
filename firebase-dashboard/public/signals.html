@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Signals · Northstar Trader</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<nav>
+  <a href="index.html" class="nav-brand">📈 Northstar</a>
+  <a href="index.html"       class="nav-link" data-page="index.html">Dashboard</a>
+  <a href="signals.html"     class="nav-link" data-page="signals.html">Signals</a>
+  <a href="trades.html"      class="nav-link" data-page="trades.html">Trades</a>
+  <a href="performance.html" class="nav-link" data-page="performance.html">Performance</a>
+  <a href="status.html"      class="nav-link" data-page="status.html">Status</a>
+  <div class="nav-right">
+    <span class="status-dot" id="nav-dot"></span>
+    <span id="nav-updated">Loading…</span>
+  </div>
+</nav>
+
+<main>
+
+  <div class="page-header">
+    <h1>Trading Signals</h1>
+    <p>All symbols scored in the latest engine run, sorted by composite score.</p>
+  </div>
+
+  <!-- Regime banner -->
+  <div id="regime-banner" class="regime-banner inactive">
+    <span class="regime-pill">Regime</span>
+    <span class="regime-summary">Loading…</span>
+  </div>
+
+  <!-- Run meta info bar -->
+  <div class="card mb-24" id="run-meta" style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;font-size:13px;">
+    <span>Run: <strong id="meta-trigger">—</strong></span>
+    <span>Scored: <strong id="meta-count">—</strong> symbols</span>
+    <span>Buy signals: <strong id="meta-buys">—</strong></span>
+    <span>Threshold: <strong id="meta-threshold">—</strong></span>
+    <span style="margin-left:auto;color:var(--muted);" id="meta-time">—</span>
+  </div>
+
+  <!-- Full signals table -->
+  <div class="card">
+    <div class="card-label">All Signals — Current Run</div>
+    <div id="signals-table">
+      <div class="state-box"><div class="spinner"></div><span>Loading signals…</span></div>
+    </div>
+  </div>
+
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="js/firebase-config.js"></script>
+<script src="js/common.js"></script>
+<script src="js/signals.js"></script>
+</body>
+</html>

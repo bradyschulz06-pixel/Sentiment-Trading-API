@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard · Northstar Trader</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<!-- ── Navigation ────────────────────────────────────────── -->
+<nav>
+  <a href="index.html" class="nav-brand">📈 Northstar</a>
+  <a href="index.html"       class="nav-link" data-page="index.html">Dashboard</a>
+  <a href="signals.html"     class="nav-link" data-page="signals.html">Signals</a>
+  <a href="trades.html"      class="nav-link" data-page="trades.html">Trades</a>
+  <a href="performance.html" class="nav-link" data-page="performance.html">Performance</a>
+  <a href="status.html"      class="nav-link" data-page="status.html">Status</a>
+  <div class="nav-right">
+    <span class="status-dot" id="nav-dot"></span>
+    <span id="nav-updated">Loading…</span>
+  </div>
+</nav>
+
+<!-- ── Main content ──────────────────────────────────────── -->
+<main>
+
+  <div class="page-header">
+    <h1>Dashboard</h1>
+    <p>Live overview — account health, open positions, and latest buy signals.</p>
+  </div>
+
+  <!-- 4 top-level stat cards -->
+  <div class="grid-4">
+    <div class="card">
+      <div class="card-label">Portfolio Equity</div>
+      <div class="stat-value" id="stat-equity">—</div>
+      <div class="stat-sub"  id="stat-buying-power">Buying power: —</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Open P&amp;L</div>
+      <div class="stat-value" id="stat-open-pnl">—</div>
+      <div class="stat-sub"  id="stat-positions-count">— open positions</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Win Rate (closed trades)</div>
+      <div class="stat-value" id="stat-win-rate">—</div>
+      <div class="stat-sub"  id="stat-total-trades">— trades recorded</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Signal Threshold</div>
+      <div class="stat-value" id="stat-threshold">—</div>
+      <div class="stat-sub">Min earnings score to generate a buy</div>
+    </div>
+  </div>
+
+  <!-- Market regime banner -->
+  <div id="regime-banner" class="regime-banner inactive">
+    <span class="regime-pill">Regime</span>
+    <span class="regime-summary" id="regime-text">Loading market regime…</span>
+  </div>
+
+  <div class="grid-2">
+    <!-- Latest buy signals -->
+    <div class="card">
+      <div class="card-label">🔔 Latest Buy Signals</div>
+      <div id="signals-preview">
+        <div class="state-box"><div class="spinner"></div><span>Loading…</span></div>
+      </div>
+    </div>
+
+    <!-- Current positions -->
+    <div class="card">
+      <div class="card-label">📊 Open Positions</div>
+      <div id="positions-preview">
+        <div class="state-box"><div class="spinner"></div><span>Loading…</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Last engine run -->
+  <div class="card">
+    <div class="card-label">⚡ Last Engine Run</div>
+    <div id="last-run">
+      <div class="state-box"><div class="spinner"></div><span>Loading…</span></div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Firebase SDKs (compat API — easiest for beginners) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="js/firebase-config.js"></script>
+<script src="js/common.js"></script>
+<script src="js/dashboard.js"></script>
+</body>
+</html>

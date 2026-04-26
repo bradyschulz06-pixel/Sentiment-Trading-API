@@ -1,0 +1,388 @@
+/* ============================================================
+   NORTHSTAR TRADING DASHBOARD  –  Shared Stylesheet
+   ============================================================ */
+
+/* ---------- design tokens ---------- */
+:root {
+  --bg:          #0d1117;
+  --surface:     #161b22;
+  --surface-2:   #1c2128;
+  --border:      #30363d;
+  --text:        #c9d1d9;
+  --muted:       #8b949e;
+  --primary:     #58a6ff;
+  --green:       #3fb950;
+  --red:         #f85149;
+  --yellow:      #e3b341;
+  --purple:      #bc8cff;
+  --radius:      8px;
+  --shadow:      0 2px 10px rgba(0,0,0,.45);
+  --font:        -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* ---------- reset ---------- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.55;
+  min-height: 100vh;
+}
+
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ============================================================
+   NAVIGATION
+   ============================================================ */
+nav {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  height: 52px;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.nav-brand {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--primary);
+  margin-right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.nav-brand:hover { text-decoration: none; }
+
+nav a.nav-link {
+  color: var(--muted);
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  transition: color .15s, background .15s;
+  text-decoration: none;
+}
+nav a.nav-link:hover,
+nav a.nav-link.active {
+  color: var(--text);
+  background: var(--surface-2);
+  text-decoration: none;
+}
+
+.nav-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border);
+  flex-shrink: 0;
+}
+.status-dot.ok    { background: var(--green); }
+.status-dot.error { background: var(--red); }
+
+/* ============================================================
+   PAGE LAYOUT
+   ============================================================ */
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 28px 16px;
+}
+
+.page-header { margin-bottom: 24px; }
+.page-header h1 { font-size: 22px; font-weight: 700; }
+.page-header p  { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+/* ============================================================
+   CARDS
+   ============================================================ */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+}
+
+.card + .card { margin-top: 16px; }
+
+.card-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+/* big number stat */
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.stat-sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 5px;
+}
+
+/* ============================================================
+   GRID HELPERS
+   ============================================================ */
+.grid-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 24px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; margin-bottom: 24px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr;       gap: 16px; margin-bottom: 24px; }
+.mb-24  { margin-bottom: 24px; }
+
+/* ============================================================
+   TABLES
+   ============================================================ */
+.table-wrap { overflow-x: auto; margin-top: 8px; }
+
+table { width: 100%; border-collapse: collapse; }
+
+th {
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  font-size: 13px;
+}
+
+tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: var(--surface-2); }
+
+/* ============================================================
+   BADGES
+   ============================================================ */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+.badge-buy    { background: rgba(63,185,80,.15); color: var(--green);  border-color: rgba(63,185,80,.35); }
+.badge-watch  { background: rgba(227,179,65,.15); color: var(--yellow); border-color: rgba(227,179,65,.35); }
+.badge-skip   { background: rgba(139,148,158,.12); color: var(--muted);  border-color: var(--border); }
+.badge-ok     { background: rgba(63,185,80,.15); color: var(--green);  border-color: rgba(63,185,80,.35); }
+.badge-error  { background: rgba(248,81,73,.15); color: var(--red);    border-color: rgba(248,81,73,.35); }
+.badge-info   { background: rgba(88,166,255,.12); color: var(--primary); border-color: rgba(88,166,255,.35); }
+
+/* ============================================================
+   VALUE COLOURS
+   ============================================================ */
+.pos  { color: var(--green)  !important; }
+.neg  { color: var(--red)    !important; }
+.neu  { color: var(--muted)  !important; }
+
+/* ============================================================
+   SCORE BAR
+   ============================================================ */
+.score-bar { display: flex; align-items: center; gap: 8px; }
+.score-track {
+  flex: 1;
+  min-width: 60px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.score-fill { height: 100%; border-radius: 2px; transition: width .3s; }
+.score-fill.high { background: var(--green); }
+.score-fill.med  { background: var(--yellow); }
+.score-fill.low  { background: var(--red); }
+.score-num { font-size: 12px; font-weight: 600; min-width: 34px; text-align: right; }
+
+/* ============================================================
+   REGIME BANNER
+   ============================================================ */
+.regime-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+.regime-banner.risk_on  { border-color: rgba(63,185,80,.4);  background: rgba(63,185,80,.05);  }
+.regime-banner.risk_off { border-color: rgba(248,81,73,.4);  background: rgba(248,81,73,.05);  }
+.regime-banner.inactive { border-color: var(--border);       background: var(--surface);       }
+
+.regime-pill {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  flex-shrink: 0;
+}
+.risk_on  .regime-pill { background: rgba(63,185,80,.2);  color: var(--green);  }
+.risk_off .regime-pill { background: rgba(248,81,73,.2);  color: var(--red);    }
+.inactive .regime-pill { background: var(--surface-2);    color: var(--muted);  }
+
+.regime-summary { color: var(--muted); }
+.regime-summary strong { color: var(--text); }
+.regime-meta { margin-left: auto; font-size: 11px; color: var(--muted); }
+
+/* ============================================================
+   RUN LOG ROWS
+   ============================================================ */
+.run-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  margin-bottom: 8px;
+}
+.run-row:last-child { margin-bottom: 0; }
+.run-body  { flex: 1; font-size: 13px; }
+.run-time  { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.run-trigger {
+  display: inline-block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  background: var(--border);
+  color: var(--muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+}
+
+/* ============================================================
+   CHARTS
+   ============================================================ */
+.chart-container { position: relative; height: 260px; margin-top: 16px; }
+.chart-container-sm { position: relative; height: 180px; margin-top: 16px; }
+
+/* ============================================================
+   LOADING / EMPTY STATES
+   ============================================================ */
+.state-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 24px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ============================================================
+   RATIONALE / TRUNCATED TEXT
+   ============================================================ */
+.truncate {
+  max-width: 280px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ============================================================
+   SECTION DIVIDER
+   ============================================================ */
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin: 24px 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ============================================================
+   ALERTS
+   ============================================================ */
+.alert {
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  border: 1px solid;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.alert-warn  { border-color: rgba(227,179,65,.4); background: rgba(227,179,65,.08); color: var(--yellow); }
+.alert-error { border-color: rgba(248,81,73,.4);  background: rgba(248,81,73,.08);  color: var(--red);    }
+.alert-info  { border-color: rgba(88,166,255,.4); background: rgba(88,166,255,.08); color: var(--primary);}
+
+/* ============================================================
+   MORE LINK
+   ============================================================ */
+.more-link {
+  display: block;
+  text-align: right;
+  font-size: 12px;
+  color: var(--primary);
+  margin-top: 10px;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 900px) {
+  .grid-4 { grid-template-columns: repeat(2,1fr); }
+}
+@media (max-width: 640px) {
+  .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
+  nav { padding: 0 12px; overflow-x: auto; gap: 2px; }
+  nav a.nav-link { padding: 5px 8px; font-size: 12px; }
+  main { padding: 16px 12px; }
+  .stat-value { font-size: 22px; }
+  .hide-sm { display: none !important; }
+}

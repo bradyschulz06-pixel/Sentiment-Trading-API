@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Performance · Northstar Trader</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<nav>
+  <a href="index.html" class="nav-brand">📈 Northstar</a>
+  <a href="index.html"       class="nav-link" data-page="index.html">Dashboard</a>
+  <a href="signals.html"     class="nav-link" data-page="signals.html">Signals</a>
+  <a href="trades.html"      class="nav-link" data-page="trades.html">Trades</a>
+  <a href="performance.html" class="nav-link" data-page="performance.html">Performance</a>
+  <a href="status.html"      class="nav-link" data-page="status.html">Status</a>
+  <div class="nav-right">
+    <span class="status-dot" id="nav-dot"></span>
+    <span id="nav-updated">Loading…</span>
+  </div>
+</nav>
+
+<main>
+
+  <div class="page-header">
+    <h1>Performance</h1>
+    <p>Equity curve, key metrics, and per-trade breakdown from the latest journal or backtest.</p>
+  </div>
+
+  <!-- ── Summary stat cards ─────────────────────────── -->
+  <div class="grid-4" id="perf-stats">
+    <div class="card">
+      <div class="card-label">Total Return</div>
+      <div class="stat-value" id="stat-return">—</div>
+      <div class="stat-sub"  id="stat-vs-bench">vs benchmark: —</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Win Rate</div>
+      <div class="stat-value" id="stat-winrate">—</div>
+      <div class="stat-sub"  id="stat-trades">— total trades</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Max Drawdown</div>
+      <div class="stat-value neg" id="stat-dd">—</div>
+      <div class="stat-sub">Worst peak-to-trough</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Sharpe Ratio</div>
+      <div class="stat-value" id="stat-sharpe">—</div>
+      <div class="stat-sub">Risk-adjusted return</div>
+    </div>
+  </div>
+
+  <!-- ── Equity curve chart ─────────────────────────── -->
+  <div class="card mb-24">
+    <div class="card-label">Equity Curve  <span style="color:var(--muted);font-weight:400;text-transform:none;">— strategy vs benchmark</span></div>
+    <div class="chart-container">
+      <canvas id="equity-chart"></canvas>
+    </div>
+    <div style="display:flex;gap:20px;margin-top:10px;font-size:12px;color:var(--muted);">
+      <span><span style="display:inline-block;width:18px;height:2px;background:#58a6ff;vertical-align:middle;margin-right:5px;"></span>Strategy</span>
+      <span><span style="display:inline-block;width:18px;height:2px;background:#e3b341;vertical-align:middle;margin-right:5px;border-bottom:2px dashed #e3b341;"></span>Benchmark</span>
+    </div>
+  </div>
+
+  <!-- ── Win/loss + drawdown row ────────────────────── -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-label">Win / Loss Split</div>
+      <div class="chart-container-sm">
+        <canvas id="winloss-chart"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-label">Portfolio Drawdown Over Time</div>
+      <div class="chart-container-sm">
+        <canvas id="drawdown-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Additional metrics ─────────────────────────── -->
+  <div class="grid-3" id="extra-metrics">
+    <div class="card">
+      <div class="card-label">Avg Trade Return</div>
+      <div class="stat-value" id="stat-avg-trade">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Best Trade</div>
+      <div class="stat-value pos" id="stat-best">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Worst Trade</div>
+      <div class="stat-value neg" id="stat-worst">—</div>
+    </div>
+  </div>
+
+  <!-- ── Trade table ────────────────────────────────── -->
+  <div class="card">
+    <div class="card-label">Closed Trades</div>
+    <div id="trade-table">
+      <div class="state-box"><div class="spinner"></div><span>Loading trades…</span></div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="js/firebase-config.js"></script>
+<script src="js/common.js"></script>
+<script src="js/performance.js"></script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Status · Northstar Trader</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<nav>
+  <a href="index.html" class="nav-brand">📈 Northstar</a>
+  <a href="index.html"       class="nav-link" data-page="index.html">Dashboard</a>
+  <a href="signals.html"     class="nav-link" data-page="signals.html">Signals</a>
+  <a href="trades.html"      class="nav-link" data-page="trades.html">Trades</a>
+  <a href="performance.html" class="nav-link" data-page="performance.html">Performance</a>
+  <a href="status.html"      class="nav-link" data-page="status.html">Status</a>
+  <div class="nav-right">
+    <span class="status-dot" id="nav-dot"></span>
+    <span id="nav-updated">Loading…</span>
+  </div>
+</nav>
+
+<main>
+
+  <div class="page-header">
+    <h1>System Status</h1>
+    <p>Engine health, run history, warnings, and configuration snapshot.</p>
+  </div>
+
+  <!-- ── System health cards ────────────────────────── -->
+  <div class="grid-3 mb-24">
+    <div class="card">
+      <div class="card-label">Last Run</div>
+      <div class="stat-value" id="sys-last-run">—</div>
+      <div class="stat-sub"  id="sys-trigger">trigger: —</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Market Regime</div>
+      <div class="stat-value" id="sys-regime">—</div>
+      <div class="stat-sub"  id="sys-regime-sub">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Auto-Trade</div>
+      <div class="stat-value" id="sys-autotrade">—</div>
+      <div class="stat-sub">Live order submission status</div>
+    </div>
+  </div>
+
+  <!-- ── Warnings from last run ─────────────────────── -->
+  <div class="card mb-24">
+    <div class="card-label">⚠️ Warnings — Last Run</div>
+    <div id="warnings-list">
+      <div class="state-box"><div class="spinner"></div><span>Loading…</span></div>
+    </div>
+  </div>
+
+  <!-- ── Engine run history ─────────────────────────── -->
+  <div class="card">
+    <div class="card-label">Run History (most recent first)</div>
+    <div id="run-history">
+      <div class="state-box"><div class="spinner"></div><span>Loading run history…</span></div>
+    </div>
+  </div>
+
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="js/firebase-config.js"></script>
+<script src="js/common.js"></script>
+<script src="js/status.js"></script>
+</body>
+</html>
