@@ -12,3 +12,15 @@ htmlcov/
 trading.db
 *.db
 *.egg-info/
+
+# Firebase sensitive files
+firebase-dashboard/scripts/serviceAccountKey.json
+firebase-dashboard/.firebase/
+
+# Validation reports
+validation_report.json
+test_*.db
+
+# Cache and temp files
+.cache/
+*.log

@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional, Tuple
 
 from app.config import Settings
 from app.models import EarningsBundle, PriceBar
@@ -135,7 +136,7 @@ def test_simulate_backtest_blocks_new_longs_in_risk_off_regime() -> None:
 
 def test_hard_stop_triggers_below_entry_loss_threshold() -> None:
     position = _OpenPosition("X", 100, 100.0, "2026-01-01", 105.0, 1.0)
-    result = _determine_exit_reason(
+    result, exit_type = _determine_exit_reason(
         current_price=92.0,
         position=position,
         hold_days=5,
@@ -143,11 +144,12 @@ def test_hard_stop_triggers_below_entry_loss_threshold() -> None:
         max_hold_days=20,
     )
     assert result == "Hard stop hit."
+    assert exit_type == "stop_loss"
 
 
 def test_hard_stop_does_not_trigger_above_threshold() -> None:
     position = _OpenPosition("X", 100, 100.0, "2026-01-01", 100.0, 1.0)
-    result = _determine_exit_reason(
+    result, exit_type = _determine_exit_reason(
         current_price=94.0,
         position=position,
         hold_days=5,
@@ -155,11 +157,12 @@ def test_hard_stop_does_not_trigger_above_threshold() -> None:
         max_hold_days=20,
     )
     assert result is None
+    assert exit_type == "hold"
 
 
 def test_time_stop_triggers_at_max_hold_days() -> None:
     position = _OpenPosition("X", 100, 100.0, "2026-01-01", 102.0, 1.0)
-    result = _determine_exit_reason(
+    result, exit_type = _determine_exit_reason(
         current_price=103.0,
         position=position,
         hold_days=20,
@@ -167,11 +170,12 @@ def test_time_stop_triggers_at_max_hold_days() -> None:
         max_hold_days=20,
     )
     assert result == "Time stop reached."
+    assert exit_type == "time_stop"
 
 
 def test_no_exit_within_hold_window() -> None:
     position = _OpenPosition("X", 100, 100.0, "2026-01-01", 105.0, 1.0)
-    result = _determine_exit_reason(
+    result, exit_type = _determine_exit_reason(
         current_price=103.0,
         position=position,
         hold_days=5,
@@ -179,6 +183,7 @@ def test_no_exit_within_hold_window() -> None:
         max_hold_days=20,
     )
     assert result is None
+    assert exit_type == "hold"
 
 
 # --- conviction sizing formula tests ---

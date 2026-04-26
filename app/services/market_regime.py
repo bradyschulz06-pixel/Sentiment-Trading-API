@@ -7,6 +7,12 @@ import math
 from app.config import Settings
 from app.models import PriceBar, SignalScore
 from app.scoring import compute_momentum_score
+from app.regime_adaptive import (
+    MarketRegime as AdaptiveMarketRegime,
+    detect_market_regime,
+    get_regime_parameters,
+    apply_regime_adjustments
+)
 
 
 REGIME_WARNING_PREFIX = "MARKET_REGIME::"
@@ -146,3 +152,93 @@ def parse_regime_warning(raw_warning: str) -> dict | None:
         return json.loads(raw_warning[len(REGIME_WARNING_PREFIX):])
     except json.JSONDecodeError:
         return None
+
+
+def evaluate_adaptive_regime(
+    settings: Settings,
+    benchmark_symbol: str,
+    benchmark_bars: list[PriceBar],
+    universe_bars: dict[str, list[PriceBar]],
+    vix_level: float = 20.0,
+    recent_drawdown: float = 0.0
+) -> tuple[MarketRegime, AdaptiveMarketRegime]:
+    """
+    Evaluate both traditional and adaptive market regimes.
+
+    Returns the traditional MarketRegime for backward compatibility
+    and the new AdaptiveMarketRegime for enhanced parameter adjustment.
+    """
+    # Get traditional regime
+    traditional_regime = evaluate_market_regime(
+        settings, benchmark_symbol, benchmark_bars, universe_bars
+    )
+
+    # Calculate adaptive regime inputs
+    _, benchmark_metrics = compute_momentum_score(benchmark_bars)
+    spy_trend = benchmark_metrics.get("ret21", 0.0)
+
+    # Calculate volatility (simplified)
+    if len(benchmark_bars) >= 21:
+        returns = [
+            (benchmark_bars[i].close - benchmark_bars[i-1].close) / benchmark_bars[i-1].close
+            for i in range(1, min(22, len(benchmark_bars)))
+        ]
+        volatility = (sum(r**2 for r in returns) / len(returns)) ** 0.5 * (252**0.5)
+    else:
+        volatility = 0.20
+
+    # Calculate breadth
+    above_20 = sum(
+        1 for bars in universe_bars.values()
+        if len(bars) >= 20 and bars[-1].close > bars[-20].close
+    )
+    above_50 = sum(
+        1 for bars in universe_bars.values()
+        if len(bars) >= 50 and bars[-1].close > bars[-50].close
+    )
+    breadth = above_20 / max(1, len(universe_bars))
+
+    # Detect adaptive regime
+    adaptive_regime = detect_market_regime(
+        spy_trend=spy_trend,
+        spy_volatility=volatility,
+        vix_level=vix_level,
+        breadth=breadth,
+        recent_drawdown=recent_drawdown
+    )
+
+    return traditional_regime, adaptive_regime
+
+
+def apply_adaptive_parameters(
+    settings: Settings,
+    adaptive_regime: AdaptiveMarketRegime
+) -> dict:
+    """
+    Apply adaptive regime parameters to base settings.
+
+    Returns a dictionary of adjusted parameters.
+    """
+    regime_params = get_regime_parameters(adaptive_regime)
+
+    # Apply regime adjustments
+    adjusted_threshold, adjusted_max_positions, adjusted_stop_loss, adjusted_target = apply_regime_adjustments(
+        signal_threshold=settings.signal_threshold,
+        max_positions=settings.max_positions,
+        stop_loss_pct=settings.stop_loss_pct,
+        target_multiplier=1.0,
+        regime_params=regime_params
+    )
+
+    return {
+        "signal_threshold": adjusted_threshold,
+        "max_positions": adjusted_max_positions,
+        "stop_loss_pct": adjusted_stop_loss,
+        "target_multiplier": adjusted_target,
+        "momentum_weight": regime_params.momentum_weight,
+        "earnings_weight": regime_params.earnings_weight,
+        "trailing_stop_enabled": regime_params.trailing_stop_enabled,
+        "trailing_stop_pct": regime_params.trailing_stop_pct,
+        "regime_description": regime_params.description,
+        "position_size_multiplier": regime_params.position_size_multiplier
+    }

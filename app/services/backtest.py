@@ -7,10 +7,11 @@ import math
 from app.config import Settings
 from app.db import get_connection, initialize_database
 from app.models import BacktestPoint, BacktestResult, BacktestTrade, EarningsBundle, PositionSnapshot, PriceBar
-from app.scoring import build_signal, compute_position_vol_scalar
+from app.scoring import build_signal, compute_position_vol_scalar, compute_trailing_stop
 from app.services.alpaca import AlpacaService
 from app.services.alpha_vantage import AlphaVantageService
-from app.services.market_regime import apply_market_regime_to_signal, evaluate_market_regime
+from app.services.market_regime import apply_market_regime_to_signal, evaluate_market_regime, evaluate_adaptive_regime, apply_adaptive_parameters
+from app.sector_rotation import analyze_sector_performance, filter_signals_by_sector_rotation, get_sector_rotation_weights
 from app.universe import get_universe, get_universe_presets, normalize_universe_preset
 
 
@@ -130,13 +131,46 @@ def _determine_exit_reason(
     hold_days: int,
     stop_loss_pct: float,
     max_hold_days: int,
-) -> str | None:
+    trailing_stop_pct: float = 0.06,
+    trailing_arm_pct: float = 0.03,
+    profit_levels: list[float] = None,
+) -> tuple[str | None, str]:
+    """
+    Determine exit reason and exit type for a position.
+
+    Returns tuple of (exit_reason, exit_type) where exit_type can be:
+    - "stop_loss": Hard stop loss hit
+    - "trailing_stop": Trailing stop hit
+    - "time_stop": Maximum holding period reached
+    - "profit_level": Multi-level profit taking
+    - "momentum_exit": Momentum-based exit
+    - None: No exit
+    """
+    unrealized_pnl = (current_price - position.entry_price) / position.entry_price
     hard_stop_price = position.entry_price * (1.0 - stop_loss_pct)
+
+    # Check hard stop first
     if current_price <= hard_stop_price:
-        return "Hard stop hit."
+        return "Hard stop hit.", "stop_loss"
+
+    # Check trailing stop if in profit
+    if trailing_stop_pct > 0 and unrealized_pnl >= trailing_arm_pct:
+        trailing_stop_price = position.peak_price * (1.0 - trailing_stop_pct)
+        if current_price <= trailing_stop_price:
+            return f"Trailing stop hit at {trailing_stop_pct:.1%}.", "trailing_stop"
+
+    # Check multi-level profit taking
+    if profit_levels:
+        for i, level in enumerate(profit_levels):
+            if current_price >= level and unrealized_pnl >= 0.02:  # Only take profit if at least 2% gain
+                level_num = i + 1
+                return f"Profit level {level_num} ({level:.2f}) reached.", "profit_level"
+
+    # Check time stop
     if hold_days >= max_hold_days:
-        return "Time stop reached."
-    return None
+        return "Time stop reached.", "time_stop"
+
+    return None, "hold"
 
 
 def simulate_backtest(
@@ -224,6 +258,20 @@ def simulate_backtest(
         regime_counts[regime.label] = regime_counts.get(regime.label, 0) + 1
         effective_threshold = regime.effective_signal_threshold(signal_threshold)
 
+        # Enhanced regime detection with adaptive parameters
+        try:
+            traditional_regime, adaptive_regime = evaluate_adaptive_regime(
+                settings, benchmark_symbol, benchmark_symbol_bars, symbol_bars
+            )
+            adaptive_params = apply_adaptive_parameters(settings, adaptive_regime)
+            # Use adaptive parameters if available
+            effective_threshold = adaptive_params.get("signal_threshold", effective_threshold)
+            effective_max_positions = adaptive_params.get("max_positions", settings.max_positions)
+        except Exception:
+            # Fallback to traditional regime if adaptive fails
+            adaptive_params = {}
+            effective_max_positions = settings.max_positions
+
         for symbol, filtered_bars in symbol_bars.items():
             current_price = current_prices[symbol]
             earnings_bundle = earnings_by_symbol.get(symbol)
@@ -253,13 +301,19 @@ def simulate_backtest(
             if open_position is not None:
                 open_position.peak_price = max(open_position.peak_price, current_price)
                 hold_days = _holding_days(date_index, open_position.entry_date, current_date)
-                exit_reason = _determine_exit_reason(
+
+                # Enhanced exit logic with new features
+                exit_reason, exit_type = _determine_exit_reason(
                     current_price=current_price,
                     position=open_position,
                     hold_days=hold_days,
                     stop_loss_pct=settings.stop_loss_pct,
                     max_hold_days=max_hold_days,
+                    trailing_stop_pct=settings.backtest_trailing_stop_pct,
+                    trailing_arm_pct=settings.backtest_trailing_arm_pct,
+                    profit_levels=signal.profit_levels if signal.decision == "hold" else None,
                 )
+
                 if exit_reason:
                     exit_price = _apply_slippage(current_price, "sell", slippage_bps)
                     gross_proceeds = exit_price * open_position.qty
@@ -284,13 +338,40 @@ def simulate_backtest(
                         )
                     )
                     del open_positions[symbol]
-                    if reentry_cooldown_days > 0 and exit_reason == "Hard stop hit.":
+                    if reentry_cooldown_days > 0 and exit_type == "stop_loss":
                         next_idx = date_index[current_date] + reentry_cooldown_days
                         _stop_cooldown[symbol] = ordered_dates[next_idx] if next_idx < len(ordered_dates) else ordered_dates[-1]
                 continue
 
             if signal.decision == "buy":
                 candidate_signals.append(signal)
+
+        # Apply sector rotation filtering if enabled
+        if len(candidate_signals) > 0:
+            try:
+                # Convert signals to dict format for sector analysis
+                signal_dicts = [
+                    {
+                        "symbol": s.symbol,
+                        "momentum_score": s.momentum_score,
+                        "earnings_score": s.earnings_score,
+                        "composite_score": s.composite_score,
+                        "decision": s.decision
+                    }
+                    for s in candidate_signals
+                ]
+
+                sector_performances = analyze_sector_performance(signal_dicts)
+                filtered_signal_dicts = filter_signals_by_sector_rotation(
+                    signal_dicts, sector_performances, max_underweight_signals=1
+                )
+
+                # Convert back to SignalScore objects, preserving original objects
+                filtered_symbols = {s["symbol"] for s in filtered_signal_dicts}
+                candidate_signals = [s for s in candidate_signals if s.symbol in filtered_symbols]
+            except Exception:
+                # If sector rotation fails, use all candidate signals
+                pass
 
         candidate_signals.sort(key=lambda item: item.composite_score, reverse=True)
         current_equity = cash + sum(position.qty * current_prices.get(symbol, position.entry_price) for symbol, position in open_positions.items())
@@ -304,7 +385,7 @@ def simulate_backtest(
             elif portfolio_drawdown_active and rolling_ret > -0.02:
                 portfolio_drawdown_active = False
 
-        effective_max_positions = regime.effective_max_positions(settings.max_positions)
+        effective_max_positions = regime.effective_max_positions(effective_max_positions)
         open_slots = 0 if portfolio_drawdown_active else max(0, effective_max_positions - len(open_positions))
         base_budget = current_equity * settings.max_position_pct
 
@@ -318,6 +399,8 @@ def simulate_backtest(
             raw_price = current_prices.get(signal.symbol, signal.price)
             entry_price = _apply_slippage(raw_price, "buy", slippage_bps)
             vol_scalar = compute_position_vol_scalar(symbol_bars.get(signal.symbol, []))
+
+            # Enhanced conviction sizing with adaptive parameters
             if settings.conviction_sizing_enabled:
                 threshold_range = max(1.0 - signal_threshold, 0.01)
                 conviction = max(0.0, min(1.0, (signal.composite_score - signal_threshold) / threshold_range))
@@ -327,8 +410,12 @@ def simulate_backtest(
                 )
             else:
                 conviction_scalar = 1.0
+
+            # Apply adaptive position sizing if available
+            position_multiplier = adaptive_params.get("position_size_multiplier", 1.0) if adaptive_params else 1.0
+
             budget_per_trade = min(
-                base_budget * vol_scalar * conviction_scalar,
+                base_budget * vol_scalar * conviction_scalar * position_multiplier,
                 base_budget * settings.conviction_sizing_max_scalar,
             )
             tradable_cash = max(0.0, min(budget_per_trade, cash - commission_per_order))

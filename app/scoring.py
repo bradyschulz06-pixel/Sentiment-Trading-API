@@ -120,6 +120,26 @@ def _lookback_close(closes: list[float], days: int) -> float:
     return closes[index]
 
 
+def compute_conviction_sizing(
+    composite_score: float,
+    base_position_pct: float = 0.08,
+    min_scalar: float = 0.75,
+    max_scalar: float = 1.25
+) -> float:
+    """
+    Scale position size based on signal conviction (composite score).
+
+    Higher conviction scores get larger allocations, bounded by min/max scalars.
+    """
+    # Normalize score to 0-1 range for sizing
+    normalized_score = max(0.0, min(1.0, composite_score))
+
+    # Linear scaling from base position
+    conviction_scalar = min_scalar + (normalized_score * (max_scalar - min_scalar))
+
+    return base_position_pct * conviction_scalar
+
+
 def compute_position_vol_scalar(
     bars: list[PriceBar],
     target_annual_vol: float = 0.20,
@@ -196,6 +216,67 @@ def compute_earnings_score(bundle: EarningsBundle | None, today: date, buffer_da
     return score, blocked_for_earnings
 
 
+def compute_profit_levels(
+    entry_price: float,
+    target_price: float,
+    num_levels: int = 3
+) -> list[float]:
+    """
+    Calculate price levels for multi-level profit taking.
+
+    Distributes profit targets evenly between entry and final target,
+    allowing traders to lock in gains at multiple levels.
+    """
+    if num_levels < 1:
+        return []
+
+    profit_levels = []
+    price_range = target_price - entry_price
+
+    for i in range(1, num_levels + 1):
+        # Distribute levels evenly (e.g., 33%, 67%, 100% of range)
+        level_price = entry_price + (price_range * (i / num_levels))
+        profit_levels.append(round(level_price, 2))
+
+    return profit_levels
+
+
+def compute_trailing_stop(
+    position: PositionSnapshot,
+    current_price: float,
+    bars: list[PriceBar],
+    trailing_pct: float = 0.06,
+    activation_pct: float = 0.03
+) -> float:
+    """
+    Compute a trailing stop price for an existing position.
+
+    The trailing stop activates once the position is up by activation_pct,
+    then trails the highest price seen by trailing_pct.
+    """
+    if position.avg_entry_price <= 0:
+        return current_price * (1.0 - trailing_pct)
+
+    unrealized_pnl = (current_price - position.avg_entry_price) / position.avg_entry_price
+
+    # Only activate trailing stop if we're in profit
+    if unrealized_pnl < activation_pct:
+        return position.avg_entry_price * (1.0 - 0.08)  # Use original stop
+
+    # Calculate the highest price since entry (using recent bars)
+    closes = [bar.close for bar in bars]
+    entry_index = max(0, len(closes) - 30)  # Look back up to 30 bars
+    recent_highs = [max(closes[entry_index:])]
+    highest_since_entry = max(recent_highs)
+
+    # Trail from the high
+    trailing_stop = highest_since_entry * (1.0 - trailing_pct)
+
+    # Never trail below the original stop
+    original_stop = position.avg_entry_price * (1.0 - 0.08)
+    return max(trailing_stop, original_stop)
+
+
 def build_signal(
     symbol: str,
     bars: list[PriceBar],
@@ -212,13 +293,23 @@ def build_signal(
         today=today or datetime.now(timezone.utc).date(),
         buffer_days=upcoming_earnings_buffer_days,
     )
-    composite = earnings_score
+    # Enhanced composite: combine momentum and earnings for stronger signals
+    # Momentum provides timing, earnings provides fundamental catalyst
+    composite = (momentum_score * 0.40) + (earnings_score * 0.60)
     current_price = metrics["current"]
     rsi = metrics.get("rsi", 50.0)
     stop_price = current_price * (1.0 - stop_loss_pct)
-    target_price = current_price * (1.0 + stop_loss_pct * 1.75)
+    # Enhanced target: use risk-reward ratio based on volatility
+    atr = _compute_atr(bars)
+    volatility_adjusted_target = stop_loss_pct * 2.0  # 2:1 risk-reward minimum
+    # Add momentum bonus for strong trends
+    if momentum_score > 0.3:
+        volatility_adjusted_target *= 1.3  # Extend targets for strong momentum
+    target_price = current_price * (1.0 + volatility_adjusted_target)
     if position is not None and position.avg_entry_price > 0:
-        stop_price = position.avg_entry_price * (1.0 - stop_loss_pct)
+        # Use trailing stop for existing positions
+        trailing_stop = compute_trailing_stop(position, current_price, bars)
+        stop_price = max(stop_price, trailing_stop)
     reasons: list[str] = []
     trend_ok = current_price > metrics["sma20"] > metrics["sma50"]
     if trend_ok:
@@ -235,19 +326,38 @@ def build_signal(
         reasons.append(f"RSI is elevated ({rsi:.0f}) — waiting for momentum to cool before entry")
     elif rsi < 35:
         reasons.append(f"RSI shows short-term weakness ({rsi:.0f})")
+    # Enhanced decision logic with multiple confirmation factors
     decision = "watch"
     if position is not None:
-        if current_price <= stop_price or composite < 0.10:
+        # Exit logic for existing positions
+        unrealized_pnl = (current_price - position.avg_entry_price) / position.avg_entry_price
+        # Momentum-based exit: if momentum turns negative while in profit, take gains
+        if momentum_score < -0.2 and unrealized_pnl > 0.02:
+            decision = "sell"
+            reasons.append("momentum has turned negative - taking profits")
+        elif current_price <= stop_price or composite < 0.10:
             decision = "sell"
             reasons.append("existing position has lost its edge")
         else:
             decision = "hold"
             reasons.append("existing position still fits the model")
     elif composite >= threshold and not blocked_for_earnings:
+        # Enhanced entry requirements
         if rsi > 75.0:
             decision = "watch"
+            reasons.append("RSI too elevated for entry")
+        elif momentum_score < 0.1:
+            decision = "watch"
+            reasons.append("momentum not strong enough for entry")
         else:
             decision = "buy"
+            reasons.append("strong earnings and momentum alignment")
+    # Calculate conviction-based position sizing
+    conviction_sizing = compute_conviction_sizing(composite)
+
+    # Calculate multi-level profit targets
+    profit_levels = compute_profit_levels(current_price, target_price, num_levels=3)
+
     return SignalScore(
         symbol=symbol,
         price=round(current_price, 2),
@@ -261,4 +371,6 @@ def build_signal(
         target_price=round(target_price, 2),
         next_earnings_date=bundle.upcoming_report_date if bundle else None,
         headline="",
+        conviction_sizing=round(conviction_sizing, 4),
+        profit_levels=profit_levels,
     )

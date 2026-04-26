@@ -65,6 +65,8 @@ class SignalScore:
     target_price: float
     next_earnings_date: str | None = None
     headline: str = ""
+    conviction_sizing: float = 0.08  # Recommended position size as % of portfolio
+    profit_levels: list[float] = field(default_factory=list)  # Price levels for partial profit taking
 
 
 @dataclass(slots=True)

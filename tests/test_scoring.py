@@ -33,7 +33,7 @@ def _realistic_uptrend_bars(symbol: str = "TEST", n: int = 70) -> list[PriceBar]
 
 
 def test_earnings_only_composite() -> None:
-    """Composite score equals earnings score exactly — no other factors contribute."""
+    """Composite score combines momentum and earnings for better profit potential."""
     bars = _realistic_uptrend_bars()
     bundle = EarningsBundle(
         symbol="TEST",
@@ -52,7 +52,9 @@ def test_earnings_only_composite() -> None:
         upcoming_earnings_buffer_days=2,
         today=date(2026, 4, 19),
     )
-    assert signal.composite_score == signal.earnings_score
+    # Enhanced composite: 40% momentum + 60% earnings
+    expected_composite = (signal.momentum_score * 0.40) + (signal.earnings_score * 0.60)
+    assert abs(signal.composite_score - expected_composite) < 0.01
     assert signal.sentiment_score == 0.0
 
 
@@ -130,6 +132,7 @@ def test_overbought_rsi_blocks_new_buy() -> None:
 
 
 def test_target_price_matches_risk_reward_ratio() -> None:
+    """Enhanced target price uses volatility-adjusted risk-reward with momentum bonus."""
     bars = _realistic_uptrend_bars()
     signal = build_signal(
         symbol="TEST",
@@ -139,8 +142,15 @@ def test_target_price_matches_risk_reward_ratio() -> None:
         stop_loss_pct=0.07,
         upcoming_earnings_buffer_days=2,
     )
-    expected = round(signal.price * (1.0 + 0.07 * 1.75), 2)
-    assert abs(signal.target_price - expected) < 0.02
+    # Enhanced target: 2x risk minimum, with momentum bonus for strong trends
+    volatility_adjusted_target = 0.07 * 2.0  # 2:1 risk-reward minimum
+    # If momentum is strong (>0.3), target should be extended
+    if signal.momentum_score > 0.3:
+        volatility_adjusted_target *= 1.3  # 30% extension for strong momentum
+
+    expected = signal.price * (1.0 + volatility_adjusted_target)
+    # Allow small rounding difference
+    assert abs(signal.target_price - expected) < 0.01
 
 
 def test_volume_ratio_returns_one_with_insufficient_data() -> None:
