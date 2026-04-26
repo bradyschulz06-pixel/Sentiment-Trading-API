@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import date
 
 from app.models import EarningsBundle, NewsItem, PriceBar
-from app.scoring import _compute_rsi, _volume_ratio, build_signal, compute_momentum_score, normalize_factor_weights
+from app.models import PositionSnapshot
+from app.scoring import _compute_macd, _compute_rsi, _volume_ratio, build_signal, compute_momentum_score, normalize_factor_weights
 
 
 def _bars(symbol: str, closes: list[float]) -> list[PriceBar]:
@@ -148,3 +149,127 @@ def test_volume_ratio_returns_one_with_insufficient_data() -> None:
 
 def test_rsi_returns_neutral_with_insufficient_data() -> None:
     assert _compute_rsi([100.0, 101.0]) == 50.0
+
+
+def test_macd_histogram_present_in_metrics() -> None:
+    bars = _realistic_uptrend_bars(n=70)
+    _, metrics = compute_momentum_score(bars)
+    assert "macd_histogram" in metrics
+    assert isinstance(metrics["macd_histogram"], float)
+
+
+def test_macd_histogram_positive_for_accelerating_uptrend() -> None:
+    # Exponential growth: fast EMA tracks the acceleration faster than slow EMA → positive histogram.
+    closes = [100.0 * (1.008 ** i) for i in range(80)]
+    bars = _bars("UP", closes)
+    _, metrics = compute_momentum_score(bars)
+    assert metrics["macd_histogram"] > 0, f"Accelerating uptrend should produce positive MACD histogram, got {metrics['macd_histogram']}"
+
+
+def test_macd_histogram_negative_after_sharp_reversal() -> None:
+    # 60 bars of steady growth build a positive MACD; 20 bars of sharp decline pull
+    # the fast EMA down faster than the signal line catches up → histogram goes negative.
+    up = [100.0 * (1.005 ** i) for i in range(60)]
+    peak = up[-1]
+    down = [peak * (0.985 ** i) for i in range(1, 21)]
+    bars = _bars("REV", up + down)
+    _, metrics = compute_momentum_score(bars)
+    assert metrics["macd_histogram"] < 0, f"Post-reversal MACD histogram should be negative, got {metrics['macd_histogram']}"
+
+
+def test_macd_returns_zero_tuple_with_insufficient_data() -> None:
+    macd, signal, hist = _compute_macd([100.0] * 30)
+    assert macd == 0.0 and signal == 0.0 and hist == 0.0
+
+
+def test_sma200_present_in_metrics_with_enough_bars() -> None:
+    bars = _bars("X", [100 + i * 0.1 for i in range(220)])
+    _, metrics = compute_momentum_score(bars)
+    assert "sma200" in metrics
+    assert metrics["sma200"] is not None
+    assert metrics["sma200"] > 0
+
+
+def test_sma200_none_with_fewer_than_200_bars() -> None:
+    bars = _bars("X", [100.0] * 80)
+    _, metrics = compute_momentum_score(bars)
+    assert metrics.get("sma200") is None
+
+
+def test_sma200_demotes_composite_when_price_below() -> None:
+    # Build bars where price ends below the 200-day average (sharp decline at end).
+    closes = [100.0 + i * 0.5 for i in range(200)] + [50.0] * 10
+    bars = _bars("X", closes)
+    _, metrics = compute_momentum_score(bars)
+    assert metrics.get("sma200") is not None
+    assert bars[-1].close < metrics["sma200"], "Precondition: price must be below SMA200"
+    signal_below = build_signal(
+        symbol="X",
+        bars=bars,
+        news_items=[],
+        bundle=None,
+        threshold=0.01,
+        stop_loss_pct=0.08,
+        upcoming_earnings_buffer_days=2,
+    )
+    # Rebuild bars without the decline to get a baseline composite
+    bars_above = _bars("X", [100.0 + i * 0.5 for i in range(210)])
+    signal_above = build_signal(
+        symbol="X",
+        bars=bars_above,
+        news_items=[],
+        bundle=None,
+        threshold=0.01,
+        stop_loss_pct=0.08,
+        upcoming_earnings_buffer_days=2,
+    )
+    assert signal_below.composite_score <= signal_above.composite_score
+    assert "200-day" in signal_below.rationale
+
+
+def test_rsi_overbought_exit_triggers_on_profitable_position() -> None:
+    linear_bars = _bars("LINEAR", [100 + i for i in range(80)])
+    _, metrics = compute_momentum_score(linear_bars)
+    assert metrics["rsi"] > 82, "Precondition: RSI must be > 82 for overbought exit"
+    position = PositionSnapshot(
+        symbol="LINEAR",
+        qty=10,
+        avg_entry_price=100.0,
+        market_value=1_800.0,
+        unrealized_plpc=0.08,
+    )
+    signal = build_signal(
+        symbol="LINEAR",
+        bars=linear_bars,
+        news_items=[],
+        bundle=None,
+        threshold=0.01,
+        stop_loss_pct=0.08,
+        upcoming_earnings_buffer_days=2,
+        position=position,
+    )
+    assert signal.decision == "sell"
+    assert "overbought" in signal.rationale.lower()
+
+
+def test_rsi_overbought_exit_does_not_trigger_on_unprofitable_position() -> None:
+    linear_bars = _bars("LINEAR", [100 + i for i in range(80)])
+    position = PositionSnapshot(
+        symbol="LINEAR",
+        qty=10,
+        avg_entry_price=175.0,
+        market_value=1_800.0,
+        unrealized_plpc=0.02,
+    )
+    signal = build_signal(
+        symbol="LINEAR",
+        bars=linear_bars,
+        news_items=[],
+        bundle=None,
+        threshold=0.01,
+        stop_loss_pct=0.08,
+        upcoming_earnings_buffer_days=2,
+        position=position,
+    )
+    # unrealized_plpc < 0.05, so RSI overbought exit should NOT fire
+    assert signal.decision != "sell" or "overbought" not in signal.rationale.lower()

@@ -68,6 +68,21 @@ PHRASE_WEIGHTS = {
     "missed on revenue": -1.5,
     "missed on earnings": -1.6,
     "lawsuit": -1.0,
+    "price target raised": 1.3,
+    "price target increased": 1.2,
+    "price target hiked": 1.1,
+    "reiterated buy": 0.9,
+    "reiterated outperform": 0.8,
+    "initiates outperform": 1.1,
+    "initiates buy": 1.0,
+    "double upgrade": 1.4,
+    "price target lowered": -1.3,
+    "price target cut": -1.2,
+    "price target reduced": -1.1,
+    "reiterated sell": -0.9,
+    "initiates underperform": -1.2,
+    "initiates sell": -1.0,
+    "double downgrade": -1.4,
 }
 
 TOKEN_WEIGHTS = {

@@ -7,7 +7,7 @@ import math
 from app.config import Settings
 from app.db import get_connection, initialize_database
 from app.models import BacktestPoint, BacktestResult, BacktestTrade, EarningsBundle, PositionSnapshot, PriceBar
-from app.scoring import build_signal, compute_position_vol_scalar, normalize_factor_weights
+from app.scoring import _compute_rsi, build_signal, compute_position_vol_scalar, normalize_factor_weights
 from app.services.alpaca import AlpacaService
 from app.services.alpha_vantage import AlphaVantageService
 from app.services.market_regime import apply_market_regime_to_signal, evaluate_market_regime
@@ -136,11 +136,13 @@ def _determine_exit_reason(
     trailing_stop_pct: float,
     trailing_arm_pct: float,
     take_profit_pct: float,
+    rsi: float = 50.0,
 ) -> str | None:
     hard_stop_price = position.entry_price * (1.0 - settings.stop_loss_pct)
     trailing_stop_price = position.peak_price * (1.0 - trailing_stop_pct)
     take_profit_price = position.entry_price * (1.0 + take_profit_pct)
     trailing_armed = position.peak_price >= position.entry_price * (1.0 + trailing_arm_pct)
+    unrealized_return = (current_price - position.entry_price) / max(position.entry_price, 1e-6)
 
     if current_price <= hard_stop_price:
         return "Hard stop hit."
@@ -150,7 +152,11 @@ def _determine_exit_reason(
         return "Profit target reached."
     if hold_days >= max_hold_days:
         return "Time stop reached."
-    if hold_days >= min_hold_days and (signal.decision == "sell" or signal.composite_score < max(0.05, signal_threshold * 0.45)):
+    # Sell into strength: exit a profitable position when RSI reaches extreme overbought territory
+    # to avoid giving back gains on a sharp reversal.
+    if hold_days >= min_hold_days and rsi > 82 and unrealized_return >= 0.05:
+        return "RSI overbought exit on profitable position."
+    if hold_days >= min_hold_days and (signal.decision == "sell" or signal.composite_score < max(0.05, signal_threshold * 0.55)):
         return "Signal quality faded."
     return None
 
@@ -274,6 +280,7 @@ def simulate_backtest(
             if open_position is not None:
                 open_position.peak_price = max(open_position.peak_price, current_price)
                 hold_days = _holding_days(date_index, open_position.entry_date, current_date)
+                closes = [bar.close for bar in filtered_bars]
                 exit_reason = _determine_exit_reason(
                     current_price=current_price,
                     position=open_position,
@@ -286,6 +293,7 @@ def simulate_backtest(
                     trailing_stop_pct=trailing_stop_pct,
                     trailing_arm_pct=trailing_arm_pct,
                     take_profit_pct=take_profit_pct,
+                    rsi=_compute_rsi(closes),
                 )
                 if exit_reason:
                     exit_price = _apply_slippage(current_price, "sell", slippage_bps)

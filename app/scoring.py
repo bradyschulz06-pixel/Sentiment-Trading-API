@@ -57,6 +57,43 @@ def _volume_ratio(bars: list[PriceBar], period: int = 20) -> float:
     return bars[-1].volume / avg_vol if avg_vol > 0 else 1.0
 
 
+def _ema(values: list[float], period: int) -> list[float]:
+    """Exponential moving average seeded by the first-period SMA. Returns [] when insufficient data."""
+    if len(values) < period:
+        return []
+    k = 2.0 / (period + 1)
+    ema_vals = [sum(values[:period]) / period]
+    for v in values[period:]:
+        ema_vals.append(ema_vals[-1] * (1 - k) + v * k)
+    return ema_vals
+
+
+def _compute_macd(
+    closes: list[float],
+    fast: int = 12,
+    slow: int = 26,
+    signal: int = 9,
+) -> tuple[float, float, float]:
+    """MACD line, signal line, and histogram for the most recent bar.
+    Returns (0.0, 0.0, 0.0) when there is insufficient data."""
+    if len(closes) < slow + signal:
+        return 0.0, 0.0, 0.0
+    ema_fast = _ema(closes, fast)
+    ema_slow = _ema(closes, slow)
+    # ema_fast covers closes[fast-1:], ema_slow covers closes[slow-1:].
+    # Align by dropping the leading portion of ema_fast so both series start at closes[slow-1:].
+    offset = slow - fast
+    macd_line = [f - s for f, s in zip(ema_fast[offset:], ema_slow)]
+    if len(macd_line) < signal:
+        return 0.0, 0.0, 0.0
+    signal_line = _ema(macd_line, signal)
+    if not signal_line:
+        return 0.0, 0.0, 0.0
+    macd_current = macd_line[-1]
+    signal_current = signal_line[-1]
+    return macd_current, signal_current, macd_current - signal_current
+
+
 def _parse_iso_date(value: str | None) -> date | None:
     if not value:
         return None
@@ -118,11 +155,12 @@ def normalize_factor_weights(
     return tuple(weight / total for weight in raw_weights)
 
 
-def compute_momentum_score(bars: list[PriceBar]) -> tuple[float, dict[str, float]]:
+def compute_momentum_score(bars: list[PriceBar]) -> tuple[float, dict]:
     closes = [bar.close for bar in bars]
     current = closes[-1]
     sma20 = _average(closes[-20:])
     sma50 = _average(closes[-50:]) if len(closes) >= 50 else _average(closes)
+    sma200 = _average(closes[-200:]) if len(closes) >= 200 else None
     ret21 = _pct_change(current, _lookback_close(closes, 21))
     ret63 = _pct_change(current, _lookback_close(closes, 63))
     trend = 0.0
@@ -135,15 +173,23 @@ def compute_momentum_score(bars: list[PriceBar]) -> tuple[float, dict[str, float
     # Normalize return by expected period volatility: ret / (annualized_vol * sqrt(period/252))
     normalized_21 = clamp(ret21 / (vol_21 * math.sqrt(21 / 252)))
     normalized_63 = clamp(ret63 / (vol_63 * math.sqrt(63 / 252)))
-    score = clamp((normalized_21 * 0.45) + (normalized_63 * 0.35) + (trend * 0.20))
+    raw_score = clamp((normalized_21 * 0.45) + (normalized_63 * 0.35) + (trend * 0.20))
+    # MACD bonus: histogram normalised by 2× ATR so the ±0.10 cap requires a historically large
+    # histogram reading — avoids over-weighting MACD on every small divergence.
+    _, _, macd_histogram = _compute_macd(closes)
+    atr = _compute_atr(bars)
+    macd_bonus = clamp(macd_histogram / max(atr * 2.0, 1e-6), -0.10, 0.10)
+    score = clamp(raw_score + macd_bonus)
     rsi = _compute_rsi(closes)
     metrics = {
         "current": current,
         "sma20": sma20,
         "sma50": sma50,
+        "sma200": sma200,
         "ret21": ret21,
         "ret63": ret63,
         "rsi": rsi,
+        "macd_histogram": macd_histogram,
     }
     return score, metrics
 
@@ -199,7 +245,13 @@ def build_signal(
     )
     current_price = metrics["current"]
     rsi = metrics.get("rsi", 50.0)
+    macd_histogram = metrics.get("macd_histogram", 0.0) or 0.0
+    sma200 = metrics.get("sma200")
     vol_ratio = _volume_ratio(bars)
+    # SMA200 structural filter: demote composite by 10% when price is below the 200-day average.
+    below_sma200 = sma200 is not None and current_price < sma200
+    if below_sma200:
+        composite = clamp(composite * 0.90)
     stop_price = current_price * (1.0 - stop_loss_pct)
     # Target at 1.75× the stop distance gives a ~1.75:1 reward-to-risk ratio,
     # consistent with the default 14% take-profit in the backtest engine.
@@ -212,6 +264,12 @@ def build_signal(
         reasons.append("trend is above the 20/50-day moving averages")
     else:
         reasons.append("trend is not clean enough yet")
+    if below_sma200:
+        reasons.append("price is below the 200-day average — structural trend is not fully aligned")
+    if macd_histogram > 0:
+        reasons.append("MACD histogram is positive")
+    elif macd_histogram < 0:
+        reasons.append("MACD histogram is negative")
     if sentiment_score > 0.15:
         reasons.append("news tone is positive")
     elif sentiment_score < -0.15:
@@ -232,9 +290,18 @@ def build_signal(
         reasons.append("recent volume is below average — treat with caution")
     decision = "watch"
     if position is not None:
-        if current_price <= stop_price or composite < 0.05 or momentum_score < -0.20:
+        rsi_overbought_exit = rsi > 82 and position.unrealized_plpc >= 0.05
+        if (
+            current_price <= stop_price
+            or composite < 0.10
+            or momentum_score < -0.20
+            or rsi_overbought_exit
+        ):
             decision = "sell"
-            reasons.append("existing position has lost its edge")
+            if rsi_overbought_exit:
+                reasons.append(f"RSI is extremely overbought ({rsi:.0f}) on a profitable position — selling into strength")
+            else:
+                reasons.append("existing position has lost its edge")
         else:
             decision = "hold"
             reasons.append("existing position still fits the model")

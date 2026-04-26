@@ -187,6 +187,8 @@ class WalkForwardCandidateResult:
     average_drawdown_pct: float
     outperformance_stddev_pct: float
     total_trades: int
+    trailing_arm_pct: float = 0.0
+    max_hold_days: int = 15
     windows: list[WalkForwardWindowResult] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 

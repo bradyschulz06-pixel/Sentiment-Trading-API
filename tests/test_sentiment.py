@@ -91,3 +91,25 @@ def test_layoffs_scores_negative() -> None:
 def test_market_share_gains_scores_positive() -> None:
     score = score_text("The company reported market share gains driven by robust demand.")
     assert score > 0.0
+
+
+# --- analyst-action phrase tests ---
+
+def test_price_target_raised_scores_positive() -> None:
+    score = score_text("Goldman Sachs price target raised to $250, reiterates buy rating.")
+    assert score > 0.0
+
+
+def test_double_upgrade_scores_positive() -> None:
+    score = score_text("Analyst issues double upgrade, initiates buy on strong earnings outlook.")
+    assert score > 0.0
+
+
+def test_price_target_cut_scores_negative() -> None:
+    score = score_text("Morgan Stanley price target cut to $80 citing deteriorating margins.")
+    assert score < 0.0
+
+
+def test_double_downgrade_scores_negative() -> None:
+    score = score_text("Analyst double downgrade, price target reduced to street low.")
+    assert score < 0.0

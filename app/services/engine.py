@@ -189,6 +189,12 @@ class TradingEngine:
             except Exception as exc:  # noqa: BLE001
                 benchmark_bars = []
                 warnings.append(f"{benchmark_symbol}: benchmark fetch failed ({exc}).")
+            # Benchmark 21-day return used later for relative-strength ranking.
+            spy_ret21 = 0.0
+            if benchmark_bars:
+                _, spy_metrics = compute_momentum_score(benchmark_bars)
+                spy_ret21 = spy_metrics.get("ret21", 0.0)
+            ret21_map: dict[str, float] = {}
             for symbol in universe:
                 try:
                     bars = self.alpaca.get_daily_bars(symbol, self.settings.lookback_days)
@@ -197,7 +203,8 @@ class TradingEngine:
                         continue
                     price_map[symbol] = bars
                     news_items = self.alpaca.get_news(symbol, self.settings.news_window_days)
-                    momentum_score, _ = compute_momentum_score(bars)
+                    momentum_score, momo_metrics = compute_momentum_score(bars)
+                    ret21_map[symbol] = momo_metrics.get("ret21", 0.0)
                     news_score = aggregate_news_sentiment(news_items)
                     pre_rank.append((momentum_score, news_score, symbol, bars, news_items))
                     all_news.extend(news_items[:2])
@@ -239,7 +246,14 @@ class TradingEngine:
                 )
                 signal = apply_market_regime_to_signal(signal, regime, self.settings.signal_threshold)
                 signals.append(signal)
-            signals.sort(key=lambda item: item.composite_score, reverse=True)
+            # Rank by composite score adjusted for relative strength vs the benchmark.
+            # A stock outperforming SPY by ≥5% on a 21-day basis gets up to a 20% boost;
+            # a laggard by ≥5% gets up to a 20% reduction.  composite_score itself is unchanged.
+            def _rel_adjusted_rank(sig: SignalScore) -> float:
+                rel = ret21_map.get(sig.symbol, 0.0) - spy_ret21
+                rel_factor = max(-1.0, min(1.0, rel / 0.05))
+                return sig.composite_score * (1.0 + 0.20 * rel_factor)
+            signals.sort(key=_rel_adjusted_rank, reverse=True)
             equity = float(account.get("equity") or 0.0)
             buying_power = float(account.get("buying_power") or equity)
             planned_trades = self._plan_trades(signals, positions, equity, buying_power, regime, price_map)
