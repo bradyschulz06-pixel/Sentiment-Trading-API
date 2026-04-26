@@ -10,4 +10,5 @@ dist/
 build/
 htmlcov/
 trading.db
+*.db
 *.egg-info/
