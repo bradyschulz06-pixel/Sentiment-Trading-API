@@ -53,6 +53,10 @@ def _settings() -> Settings:
         conviction_sizing_enabled=True,
         conviction_sizing_min_scalar=0.75,
         conviction_sizing_max_scalar=1.25,
+        alpha_vantage_requests_per_minute=5,
+        max_daily_loss_pct=0.02,
+        max_trades_per_symbol_per_day=1,
+        max_positions_per_sector=2,
         backtest_min_bars=0,
         db_path=Path("test.db"),
     )
@@ -113,3 +117,46 @@ def test_market_regime_cautious_when_breadth_is_sparse() -> None:
     regime = evaluate_market_regime(settings, "SPY", benchmark, universe)
     # Only 2 symbols — below _BREADTH_MIN_SAMPLE; breadth is neutral so can't be "supportive".
     assert regime.label in {"cautious", "risk_off"}
+
+
+# --- hysteresis tests ---
+
+def test_single_risk_off_reading_demoted_to_cautious() -> None:
+    """First risk_off reading without prior confirmation is demoted to cautious."""
+    settings = _settings()
+    # Gentle decline: ret21 ≈ -3.2% → raw_risk_off (below SMA50, ret21 < -3%) but NOT extreme
+    # (ret21 > -5% and breadth is fine since universe is rising).
+    benchmark = _bars("SPY", [500 - (i * 0.7) for i in range(80)])
+    universe = _rising_universe(6)
+    regime = evaluate_market_regime(settings, "SPY", benchmark, universe, previous_label="supportive")
+    # First reading: raw_risk_off but not extreme → demoted to cautious via hysteresis
+    assert regime.label == "cautious", f"Expected 'cautious' for first risk_off reading, got '{regime.label}'"
+
+
+def test_consecutive_risk_off_readings_lock_out_new_longs() -> None:
+    """Second consecutive risk_off reading (previous_label='risk_off') → confirmed risk_off."""
+    settings = _settings()
+    benchmark = _bars("SPY", [500 - (i * 1.5) for i in range(80)])
+    universe = _rising_universe(6)
+    regime = evaluate_market_regime(settings, "SPY", benchmark, universe, previous_label="risk_off")
+    assert regime.label == "risk_off"
+    assert not regime.allow_new_longs
+
+
+def test_extreme_signal_overrides_hysteresis() -> None:
+    """Extreme drawdown (ret21 < -5%) locks out longs immediately without prior confirmation."""
+    settings = _settings()
+    # Sharp decline: -6% in 21 days qualifies as extreme (ret21 < -0.05).
+    closes = [500.0]
+    for _ in range(79):
+        closes.append(closes[-1] * 0.9992)
+    # Force a very large drop over the last 21 bars to get ret21 < -0.05
+    base = closes[58]
+    for i in range(21):
+        closes[59 + i] = base * (1.0 - 0.003 * (i + 1))
+    benchmark = _bars("SPY", closes)
+    universe = _rising_universe(6)
+    regime = evaluate_market_regime(settings, "SPY", benchmark, universe, previous_label="supportive")
+    # Extreme reading → immediate risk_off regardless of previous label
+    assert regime.label == "risk_off", f"Expected 'risk_off' for extreme drawdown, got '{regime.label}'"
+    assert not regime.allow_new_longs

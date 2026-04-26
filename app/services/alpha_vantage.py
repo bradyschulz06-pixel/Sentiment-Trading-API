@@ -31,7 +31,7 @@ class AlphaVantageService:
 
     def _rate_limit(self) -> None:
         elapsed = time.monotonic() - self._last_request_at
-        minimum_gap = 0.65
+        minimum_gap = 60.0 / max(1, self.settings.alpha_vantage_requests_per_minute)
         if elapsed < minimum_gap:
             time.sleep(minimum_gap - elapsed)
         self._last_request_at = time.monotonic()

@@ -104,6 +104,7 @@ def evaluate_market_regime(
     benchmark_symbol: str,
     benchmark_bars: list[PriceBar],
     universe_bars: dict[str, list[PriceBar]],
+    previous_label: str = "unknown",
 ) -> MarketRegime:
     if not settings.market_regime_filter_enabled:
         return MarketRegime(
@@ -156,13 +157,17 @@ def evaluate_market_regime(
         and breadth_above_50 >= 0.50
         and not vol_spike
     )
-    risk_off = (
+    raw_risk_off = (
         benchmark_price < sma50
         or (benchmark_price < sma20 and sma20 < sma50)
         or ret21 <= -0.03
         or breadth_above_20 < 0.40
         or breadth_above_50 < 0.35
     )
+    # Extreme: requires no confirmation — locks out immediately.
+    extreme_risk_off = ret21 < -0.05 or (benchmark_price < sma50 and breadth_above_20 < 0.40)
+    # Hysteresis: a first risk_off reading is demoted to cautious unless extreme or already confirmed.
+    risk_off = raw_risk_off and (previous_label == "risk_off" or extreme_risk_off)
 
     if supportive and not vol_elevated:
         summary = (

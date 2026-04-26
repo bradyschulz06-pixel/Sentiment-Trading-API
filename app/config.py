@@ -114,6 +114,10 @@ class Settings:
     conviction_sizing_enabled: bool
     conviction_sizing_min_scalar: float
     conviction_sizing_max_scalar: float
+    alpha_vantage_requests_per_minute: int
+    max_daily_loss_pct: float
+    max_trades_per_symbol_per_day: int
+    max_positions_per_sector: int
     db_path: Path
 
     @property
@@ -179,5 +183,9 @@ def get_settings() -> Settings:
         conviction_sizing_enabled=_env_bool("CONVICTION_SIZING_ENABLED", True),
         conviction_sizing_min_scalar=_env_float_clamp("CONVICTION_SIZING_MIN_SCALAR", 0.75, 0.10, 1.00),
         conviction_sizing_max_scalar=_env_float_clamp("CONVICTION_SIZING_MAX_SCALAR", 1.25, 1.00, 2.00),
+        alpha_vantage_requests_per_minute=_env_int("ALPHA_VANTAGE_REQUESTS_PER_MINUTE", 5),
+        max_daily_loss_pct=_env_float_clamp("MAX_DAILY_LOSS_PCT", 0.02, 0.001, 0.20),
+        max_trades_per_symbol_per_day=_env_int("MAX_TRADES_PER_SYMBOL_PER_DAY", 1),
+        max_positions_per_sector=_env_int("MAX_POSITIONS_PER_SECTOR", 2),
         db_path=db_path,
     )

@@ -10,6 +10,7 @@ from app.sentiment import aggregate_news_sentiment
 from app.services.alpaca import AlpacaService
 from app.services.alpha_vantage import AlphaVantageService
 from app.services.market_regime import apply_market_regime_to_signal, evaluate_market_regime
+from app.services.risk import RiskGate, RiskState, SECTOR_MAP, _DEFAULT_SECTOR
 from app.universe import get_universe
 
 
@@ -29,6 +30,9 @@ class TradingEngine:
         regime,
         price_map: dict[str, list] | None = None,
         signal_threshold: float = 0.30,
+        gate: RiskGate | None = None,
+        risk_state: RiskState | None = None,
+        daily_pnl_pct: float = 0.0,
     ) -> list[TradeIntent]:
         intents: list[TradeIntent] = []
         held_symbols = {position.symbol for position in positions}
@@ -49,11 +53,26 @@ class TradingEngine:
         effective_max_positions = regime.effective_max_positions(self.settings.max_positions)
         open_slots = max(0, effective_max_positions - remaining_positions)
         base_budget = equity * self.settings.max_position_pct
+        # Pre-compute current sector counts from held positions for the risk gate.
+        sector_counts: dict[str, int] = {}
+        for pos in positions:
+            sec = SECTOR_MAP.get(pos.symbol, _DEFAULT_SECTOR)
+            sector_counts[sec] = sector_counts.get(sec, 0) + 1
         for signal in signals:
             if open_slots <= 0:
                 break
             if signal.decision != "buy" or signal.symbol in held_symbols:
                 continue
+            # Independent risk gate veto.
+            if gate is not None and risk_state is not None:
+                verdict = gate.evaluate_buy(
+                    signal.symbol,
+                    daily_pnl_pct=daily_pnl_pct,
+                    state=risk_state,
+                    current_sector_counts=sector_counts,
+                )
+                if not verdict.approved:
+                    continue
             # Scale position budget by realized vol and signal conviction.
             if price_map and signal.symbol in price_map:
                 vol_scalar = compute_position_vol_scalar(price_map[signal.symbol])
@@ -86,6 +105,10 @@ class TradingEngine:
                     reason=signal.rationale,
                 )
             )
+            if risk_state is not None:
+                risk_state.record_trade(signal.symbol)
+                sec = SECTOR_MAP.get(signal.symbol, _DEFAULT_SECTOR)
+                sector_counts[sec] = sector_counts.get(sec, 0) + 1
             buying_power -= notional
             open_slots -= 1
         return intents
@@ -224,7 +247,9 @@ class TradingEngine:
                     all_news.extend(news_items[:2])
                 except Exception as exc:  # noqa: BLE001
                     warnings.append(f"{symbol}: data fetch failed ({exc}).")
-            regime = evaluate_market_regime(self.settings, benchmark_symbol, benchmark_bars, price_map)
+            from app.db import get_last_regime_label
+            previous_regime_label = get_last_regime_label(conn)
+            regime = evaluate_market_regime(self.settings, benchmark_symbol, benchmark_bars, price_map, previous_label=previous_regime_label)
             warnings.insert(0, regime.to_warning())
             # Select earnings-lookup candidates from both momentum leaders and news leaders
             # so neither factor crowds the other out of the expensive API budget.
@@ -270,7 +295,17 @@ class TradingEngine:
             signals.sort(key=_rel_adjusted_rank, reverse=True)
             equity = float(account.get("equity") or 0.0)
             buying_power = float(account.get("buying_power") or equity)
-            planned_trades = self._plan_trades(signals, positions, equity, buying_power, regime, price_map, signal_threshold=effective_threshold)
+            last_equity = float(account.get("last_equity") or equity)
+            daily_pnl_pct = (equity - last_equity) / max(last_equity, 1.0)
+            gate = RiskGate(self.settings)
+            risk_state = RiskState()
+            planned_trades = self._plan_trades(
+                signals, positions, equity, buying_power, regime, price_map,
+                signal_threshold=effective_threshold,
+                gate=gate,
+                risk_state=risk_state,
+                daily_pnl_pct=daily_pnl_pct,
+            )
             executed_trades = planned_trades
             if execute_trades and self.settings.auto_trade_enabled:
                 executed_trades = self._execute_trade_intents(planned_trades)

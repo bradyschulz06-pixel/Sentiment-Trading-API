@@ -253,6 +253,25 @@ def save_run(conn: sqlite3.Connection, result: EngineRunResult) -> int:
     return run_id
 
 
+def get_last_regime_label(conn: sqlite3.Connection) -> str:
+    """Return the regime label from the most recent successful run, or 'unknown'."""
+    row = conn.execute(
+        "SELECT warnings_json FROM runs WHERE status = 'ok' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if row is None:
+        return "unknown"
+    try:
+        warnings = json.loads(row["warnings_json"])
+        prefix = "MARKET_REGIME::"
+        for w in warnings:
+            if isinstance(w, str) and w.startswith(prefix):
+                payload = json.loads(w[len(prefix):])
+                return payload.get("label", "unknown")
+    except Exception:  # noqa: BLE001
+        pass
+    return "unknown"
+
+
 def fetch_latest_run(conn: sqlite3.Connection) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM runs ORDER BY id DESC LIMIT 1").fetchone()
 

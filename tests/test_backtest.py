@@ -53,6 +53,10 @@ def _settings() -> Settings:
         conviction_sizing_enabled=True,
         conviction_sizing_min_scalar=0.75,
         conviction_sizing_max_scalar=1.25,
+        alpha_vantage_requests_per_minute=5,
+        max_daily_loss_pct=0.02,
+        max_trades_per_symbol_per_day=1,
+        max_positions_per_sector=2,
         backtest_min_bars=0,
         db_path=Path("test.db"),
     )
