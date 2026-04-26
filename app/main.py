@@ -36,7 +36,6 @@ from app.services.walkforward import (
     WalkForwardService,
     default_walkforward_thresholds,
     default_walkforward_windows,
-    get_factor_profiles,
 )
 from app.universe import get_universe_presets, normalize_universe_preset
 
@@ -195,16 +194,9 @@ def _build_backtest_context(
     starting_capital: float = 100_000.0,
     universe_preset: str | None = None,
     signal_threshold: float | None = None,
-    factor_momentum_weight: float | None = None,
-    factor_sentiment_weight: float | None = None,
-    factor_earnings_weight: float | None = None,
     commission_per_order: float | None = None,
     slippage_bps: float | None = None,
     max_hold_days: int | None = None,
-    min_hold_days: int | None = None,
-    trailing_stop_pct: float | None = None,
-    trailing_arm_pct: float | None = None,
-    take_profit_pct: float | None = None,
 ) -> dict:
     last_result = result if result is not None else getattr(app.state, "last_backtest", None)
     return {
@@ -225,21 +217,6 @@ def _build_backtest_context(
                 settings.signal_threshold if signal_threshold is None else signal_threshold
             )
         ),
-        "factor_momentum_weight": (
-            last_result.factor_momentum_weight if factor_momentum_weight is None and last_result is not None else (
-                settings.factor_momentum_weight if factor_momentum_weight is None else factor_momentum_weight
-            )
-        ),
-        "factor_sentiment_weight": (
-            last_result.factor_sentiment_weight if factor_sentiment_weight is None and last_result is not None else (
-                settings.factor_sentiment_weight if factor_sentiment_weight is None else factor_sentiment_weight
-            )
-        ),
-        "factor_earnings_weight": (
-            last_result.factor_earnings_weight if factor_earnings_weight is None and last_result is not None else (
-                settings.factor_earnings_weight if factor_earnings_weight is None else factor_earnings_weight
-            )
-        ),
         "commission_per_order": (
             last_result.commission_per_order if commission_per_order is None and last_result is not None else (
                 settings.backtest_commission_per_order if commission_per_order is None else commission_per_order
@@ -253,26 +230,6 @@ def _build_backtest_context(
         "max_hold_days": (
             last_result.max_hold_days if max_hold_days is None and last_result is not None else (
                 settings.backtest_max_hold_days if max_hold_days is None else max_hold_days
-            )
-        ),
-        "min_hold_days": (
-            last_result.min_hold_days if min_hold_days is None and last_result is not None else (
-                settings.backtest_min_hold_days if min_hold_days is None else min_hold_days
-            )
-        ),
-        "trailing_stop_pct": (
-            last_result.trailing_stop_pct if trailing_stop_pct is None and last_result is not None else (
-                settings.backtest_trailing_stop_pct if trailing_stop_pct is None else trailing_stop_pct
-            )
-        ),
-        "trailing_arm_pct": (
-            last_result.trailing_arm_pct if trailing_arm_pct is None and last_result is not None else (
-                settings.backtest_trailing_arm_pct if trailing_arm_pct is None else trailing_arm_pct
-            )
-        ),
-        "take_profit_pct": (
-            last_result.take_profit_pct if take_profit_pct is None and last_result is not None else (
-                settings.backtest_take_profit_pct if take_profit_pct is None else take_profit_pct
             )
         ),
     }
@@ -302,7 +259,6 @@ def _build_walkforward_context(
                 starting_capital if error else (last_result.starting_capital if last_result is not None else starting_capital)
             )
         ),
-        "factor_profiles": get_factor_profiles(),
         "universe_presets": get_universe_presets(),
     }
 
@@ -450,16 +406,9 @@ async def run_backtest(
     starting_capital: float = Form(100000.0),
     universe_preset: str = Form(settings.universe_preset),
     signal_threshold: float = Form(settings.signal_threshold),
-    factor_momentum_weight: float = Form(settings.factor_momentum_weight),
-    factor_sentiment_weight: float = Form(settings.factor_sentiment_weight),
-    factor_earnings_weight: float = Form(settings.factor_earnings_weight),
     commission_per_order: float = Form(settings.backtest_commission_per_order),
     slippage_bps: float = Form(settings.backtest_slippage_bps),
     max_hold_days: int = Form(settings.backtest_max_hold_days),
-    min_hold_days: int = Form(settings.backtest_min_hold_days),
-    trailing_stop_pct: float = Form(settings.backtest_trailing_stop_pct),
-    trailing_arm_pct: float = Form(settings.backtest_trailing_arm_pct),
-    take_profit_pct: float = Form(settings.backtest_take_profit_pct),
 ):
     if not _is_authenticated(request):
         return _redirect_login()
@@ -467,16 +416,9 @@ async def run_backtest(
     starting_capital = max(10_000.0, min(starting_capital, 1_000_000.0))
     universe_preset = normalize_universe_preset(universe_preset)
     signal_threshold = max(0.10, min(signal_threshold, 0.90))
-    factor_momentum_weight = max(0.0, min(factor_momentum_weight, 1.0))
-    factor_sentiment_weight = max(0.0, min(factor_sentiment_weight, 1.0))
-    factor_earnings_weight = max(0.0, min(factor_earnings_weight, 1.0))
     commission_per_order = max(0.0, min(commission_per_order, 25.0))
     slippage_bps = max(0.0, min(slippage_bps, 100.0))
     max_hold_days = max(3, min(max_hold_days, 90))
-    min_hold_days = max(1, min(min_hold_days, max_hold_days))
-    trailing_stop_pct = max(0.01, min(trailing_stop_pct, 0.30))
-    trailing_arm_pct = max(0.0, min(trailing_arm_pct, 0.20))
-    take_profit_pct = max(0.01, min(take_profit_pct, 0.50))
     service = BacktestService(settings)
     try:
         result = await run_in_threadpool(
@@ -485,16 +427,9 @@ async def run_backtest(
             starting_capital,
             universe_preset=universe_preset,
             signal_threshold=signal_threshold,
-            factor_momentum_weight=factor_momentum_weight,
-            factor_sentiment_weight=factor_sentiment_weight,
-            factor_earnings_weight=factor_earnings_weight,
             commission_per_order=commission_per_order,
             slippage_bps=slippage_bps,
             max_hold_days=max_hold_days,
-            min_hold_days=min_hold_days,
-            trailing_stop_pct=trailing_stop_pct,
-            trailing_arm_pct=trailing_arm_pct,
-            take_profit_pct=take_profit_pct,
         )
         app.state.last_backtest = result
         return templates.TemplateResponse(
@@ -507,16 +442,9 @@ async def run_backtest(
                 starting_capital=starting_capital,
                 universe_preset=universe_preset,
                 signal_threshold=signal_threshold,
-                factor_momentum_weight=factor_momentum_weight,
-                factor_sentiment_weight=factor_sentiment_weight,
-                factor_earnings_weight=factor_earnings_weight,
                 commission_per_order=commission_per_order,
                 slippage_bps=slippage_bps,
                 max_hold_days=max_hold_days,
-                min_hold_days=min_hold_days,
-                trailing_stop_pct=trailing_stop_pct,
-                trailing_arm_pct=trailing_arm_pct,
-                take_profit_pct=take_profit_pct,
             ),
         )
     except Exception as exc:  # noqa: BLE001
@@ -530,16 +458,9 @@ async def run_backtest(
                 starting_capital=starting_capital,
                 universe_preset=universe_preset,
                 signal_threshold=signal_threshold,
-                factor_momentum_weight=factor_momentum_weight,
-                factor_sentiment_weight=factor_sentiment_weight,
-                factor_earnings_weight=factor_earnings_weight,
                 commission_per_order=commission_per_order,
                 slippage_bps=slippage_bps,
                 max_hold_days=max_hold_days,
-                min_hold_days=min_hold_days,
-                trailing_stop_pct=trailing_stop_pct,
-                trailing_arm_pct=trailing_arm_pct,
-                take_profit_pct=take_profit_pct,
             ),
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )

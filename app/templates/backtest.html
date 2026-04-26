@@ -4,7 +4,7 @@
   <div>
     <div class="eyebrow">Strategy Lab</div>
     <h1>Backtester</h1>
-    <p class="lead">Replay the current swing model on recent daily bars with friction, configurable factor weights, tighter exits, and a benchmark overlay before we trust it with automated paper trades.</p>
+    <p class="lead">Replay the PEAD earnings model on recent daily bars with execution friction, hard stop, time stop exits, and a benchmark overlay before we trust it with automated paper trades.</p>
   </div>
   <div class="actions">
     <a href="/" class="button ghost">Back To Dashboard</a>
@@ -49,18 +49,6 @@
           <input type="number" name="signal_threshold" min="0.10" max="0.90" step="0.01" value="{{ signal_threshold }}">
         </label>
         <label class="metric-card">
-          <span>Momentum weight</span>
-          <input type="number" name="factor_momentum_weight" min="0" max="1" step="0.01" value="{{ factor_momentum_weight }}">
-        </label>
-        <label class="metric-card">
-          <span>Sentiment weight</span>
-          <input type="number" name="factor_sentiment_weight" min="0" max="1" step="0.01" value="{{ factor_sentiment_weight }}">
-        </label>
-        <label class="metric-card">
-          <span>Earnings weight</span>
-          <input type="number" name="factor_earnings_weight" min="0" max="1" step="0.01" value="{{ factor_earnings_weight }}">
-        </label>
-        <label class="metric-card">
           <span>Commission / order</span>
           <input type="number" name="commission_per_order" min="0" max="25" step="0.25" value="{{ commission_per_order }}">
         </label>
@@ -72,27 +60,11 @@
           <span>Max hold days</span>
           <input type="number" name="max_hold_days" min="3" max="90" step="1" value="{{ max_hold_days }}">
         </label>
-        <label class="metric-card">
-          <span>Min hold days</span>
-          <input type="number" name="min_hold_days" min="1" max="30" step="1" value="{{ min_hold_days }}">
-        </label>
-        <label class="metric-card">
-          <span>Trailing stop %</span>
-          <input type="number" name="trailing_stop_pct" min="0.01" max="0.30" step="0.01" value="{{ trailing_stop_pct }}">
-        </label>
-        <label class="metric-card">
-          <span>Trailing arm %</span>
-          <input type="number" name="trailing_arm_pct" min="0.00" max="0.20" step="0.01" value="{{ trailing_arm_pct }}">
-        </label>
-        <label class="metric-card">
-          <span>Take profit %</span>
-          <input type="number" name="take_profit_pct" min="0.01" max="0.50" step="0.01" value="{{ take_profit_pct }}">
-        </label>
       </div>
       <button type="submit" class="button primary">Run Backtest</button>
     </form>
     <div class="microcopy">
-      Historical news sentiment is intentionally excluded from replay because cheap point-in-time news reconstruction would create misleading results. Factor weights are normalized automatically inside the model.
+      This replay uses earnings-only scoring (PEAD). News sentiment is intentionally excluded — historical news reconstruction would produce misleading results. Exits are a hard stop at 7% below entry and a time stop at max hold days.
     </div>
   </article>
 
@@ -100,11 +72,11 @@
     <div class="panel-label">What This Replay Does</div>
     <div class="check-list">
       <div>Uses daily Alpaca bars for price history and compares the strategy against {{ settings.backtest_benchmark_symbol }}.</div>
-      <div>Lets you test tighter stock universes and different momentum, sentiment, and earnings mixes with the same exit shell.</div>
-      <div>Applies a market regime filter so weak index trend or weak breadth blocks new longs and mixed tape raises the entry bar.</div>
+      <div>Lets you test different stock universes and signal thresholds against the same earnings-only model.</div>
+      <div>Applies a market regime filter: new longs are blocked when SPY is below its 50-day SMA.</div>
       <div>Applies historical earnings surprises only after the reported date is known.</div>
       <div>Adds commission and slippage so paper-trading decisions are held to a tougher standard.</div>
-      <div>Uses hard stop, armed trailing stop, time stop, profit-take, and signal-fade exits.</div>
+      <div>Uses a hard stop (7% below entry) and a time stop at max hold days — no trailing stop or profit-take.</div>
     </div>
   </article>
 </section>
@@ -183,40 +155,12 @@
         <div class="metric">{{ result.signal_threshold|score }}</div>
       </div>
       <div class="metric-card">
-        <div class="panel-label">Momentum</div>
-        <div class="metric">{{ result.factor_momentum_weight|pct }}</div>
-      </div>
-      <div class="metric-card">
-        <div class="panel-label">Sentiment</div>
-        <div class="metric">{{ result.factor_sentiment_weight|pct }}</div>
-      </div>
-      <div class="metric-card">
-        <div class="panel-label">Earnings</div>
-        <div class="metric">{{ result.factor_earnings_weight|pct }}</div>
-      </div>
-      <div class="metric-card">
         <div class="panel-label">Commission</div>
         <div class="metric">{{ result.commission_per_order|currency }}</div>
       </div>
       <div class="metric-card">
         <div class="panel-label">Max Hold</div>
         <div class="metric">{{ result.max_hold_days }}d</div>
-      </div>
-      <div class="metric-card">
-        <div class="panel-label">Min Hold</div>
-        <div class="metric">{{ result.min_hold_days }}d</div>
-      </div>
-      <div class="metric-card">
-        <div class="panel-label">Trailing Stop</div>
-        <div class="metric">{{ result.trailing_stop_pct|pct }}</div>
-      </div>
-      <div class="metric-card">
-        <div class="panel-label">Trailing Arm</div>
-        <div class="metric">{{ result.trailing_arm_pct|pct }}</div>
-      </div>
-      <div class="metric-card">
-        <div class="panel-label">Take Profit</div>
-        <div class="metric">{{ result.take_profit_pct|pct }}</div>
       </div>
       <div class="metric-card">
         <div class="panel-label">Slippage</div>
