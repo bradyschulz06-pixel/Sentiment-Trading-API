@@ -137,12 +137,20 @@ def _determine_exit_reason(
     trailing_arm_pct: float,
     take_profit_pct: float,
     rsi: float = 50.0,
+    breakeven_arm_pct: float = 0.03,
+    breakeven_floor_pct: float = 0.005,
 ) -> str | None:
     hard_stop_price = position.entry_price * (1.0 - settings.stop_loss_pct)
     trailing_stop_price = position.peak_price * (1.0 - trailing_stop_pct)
     take_profit_price = position.entry_price * (1.0 + take_profit_pct)
     trailing_armed = position.peak_price >= position.entry_price * (1.0 + trailing_arm_pct)
     unrealized_return = (current_price - position.entry_price) / max(position.entry_price, 1e-6)
+    # Promote hard stop to breakeven floor once peak gain has ever exceeded the arm threshold.
+    # Using peak_price (not current_price) makes the floor permanent once armed.
+    breakeven_floor_price = position.entry_price * (1.0 + breakeven_floor_pct)
+    peak_return = (position.peak_price - position.entry_price) / max(position.entry_price, 1e-6)
+    if peak_return >= breakeven_arm_pct and hard_stop_price < breakeven_floor_price:
+        hard_stop_price = breakeven_floor_price
 
     if current_price <= hard_stop_price:
         return "Hard stop hit."
@@ -181,6 +189,8 @@ def simulate_backtest(
     trailing_stop_pct: float | None = None,
     trailing_arm_pct: float | None = None,
     take_profit_pct: float | None = None,
+    breakeven_arm_pct: float | None = None,
+    breakeven_floor_pct: float | None = None,
 ) -> BacktestResult:
     universe_preset = normalize_universe_preset(universe_preset or settings.universe_preset)
     universe_meta = get_universe_presets()[universe_preset]
@@ -197,6 +207,8 @@ def simulate_backtest(
     trailing_stop_pct = settings.backtest_trailing_stop_pct if trailing_stop_pct is None else max(0.01, trailing_stop_pct)
     trailing_arm_pct = settings.backtest_trailing_arm_pct if trailing_arm_pct is None else max(0.0, trailing_arm_pct)
     take_profit_pct = settings.backtest_take_profit_pct if take_profit_pct is None else max(0.01, take_profit_pct)
+    breakeven_arm_pct = settings.backtest_breakeven_arm_pct if breakeven_arm_pct is None else max(0.0, breakeven_arm_pct)
+    breakeven_floor_pct = settings.backtest_breakeven_floor_pct if breakeven_floor_pct is None else max(0.0, breakeven_floor_pct)
     min_hold_days = min(min_hold_days, max_hold_days)
 
     benchmark_bars = price_map.get(benchmark_symbol, [])
@@ -294,6 +306,8 @@ def simulate_backtest(
                     trailing_arm_pct=trailing_arm_pct,
                     take_profit_pct=take_profit_pct,
                     rsi=_compute_rsi(closes),
+                    breakeven_arm_pct=breakeven_arm_pct,
+                    breakeven_floor_pct=breakeven_floor_pct,
                 )
                 if exit_reason:
                     exit_price = _apply_slippage(current_price, "sell", slippage_bps)
@@ -339,7 +353,19 @@ def simulate_backtest(
             entry_price = _apply_slippage(raw_price, "buy", slippage_bps)
             # Scale position budget by realized vol so high-vol stocks get smaller allocations.
             vol_scalar = compute_position_vol_scalar(symbol_bars.get(signal.symbol, []))
-            budget_per_trade = min(base_budget * vol_scalar, base_budget)
+            if settings.conviction_sizing_enabled:
+                threshold_range = max(1.0 - signal_threshold, 0.01)
+                conviction = max(0.0, min(1.0, (signal.composite_score - signal_threshold) / threshold_range))
+                conviction_scalar = (
+                    settings.conviction_sizing_min_scalar
+                    + (settings.conviction_sizing_max_scalar - settings.conviction_sizing_min_scalar) * conviction
+                )
+            else:
+                conviction_scalar = 1.0
+            budget_per_trade = min(
+                base_budget * vol_scalar * conviction_scalar,
+                base_budget * settings.conviction_sizing_max_scalar,
+            )
             tradable_cash = max(0.0, min(budget_per_trade, cash - commission_per_order))
             qty = int(tradable_cash // entry_price)
             if qty < 1:

@@ -47,6 +47,11 @@ def _settings() -> Settings:
         backtest_trailing_stop_pct=0.06,
         backtest_trailing_arm_pct=0.00,
         backtest_take_profit_pct=0.14,
+        backtest_breakeven_arm_pct=0.03,
+        backtest_breakeven_floor_pct=0.005,
+        conviction_sizing_enabled=True,
+        conviction_sizing_min_scalar=0.75,
+        conviction_sizing_max_scalar=1.25,
         backtest_min_bars=0,
         db_path=Path("test.db"),
     )

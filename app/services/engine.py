@@ -28,6 +28,7 @@ class TradingEngine:
         buying_power: float,
         regime,
         price_map: dict[str, list] | None = None,
+        signal_threshold: float = 0.30,
     ) -> list[TradeIntent]:
         intents: list[TradeIntent] = []
         held_symbols = {position.symbol for position in positions}
@@ -53,12 +54,25 @@ class TradingEngine:
                 break
             if signal.decision != "buy" or signal.symbol in held_symbols:
                 continue
-            # Scale position budget by realized vol: high-vol stocks get smaller allocation.
+            # Scale position budget by realized vol and signal conviction.
             if price_map and signal.symbol in price_map:
                 vol_scalar = compute_position_vol_scalar(price_map[signal.symbol])
             else:
                 vol_scalar = 1.0
-            budget = min(base_budget * vol_scalar, base_budget)
+            if self.settings.conviction_sizing_enabled:
+                threshold_range = max(1.0 - signal_threshold, 0.01)
+                conviction = max(0.0, min(1.0, (signal.composite_score - signal_threshold) / threshold_range))
+                conviction_scalar = (
+                    self.settings.conviction_sizing_min_scalar
+                    + (self.settings.conviction_sizing_max_scalar - self.settings.conviction_sizing_min_scalar)
+                    * conviction
+                )
+            else:
+                conviction_scalar = 1.0
+            budget = min(
+                base_budget * vol_scalar * conviction_scalar,
+                base_budget * self.settings.conviction_sizing_max_scalar,
+            )
             qty = int(min(budget, buying_power) // signal.price)
             if qty < 1:
                 continue
@@ -256,7 +270,7 @@ class TradingEngine:
             signals.sort(key=_rel_adjusted_rank, reverse=True)
             equity = float(account.get("equity") or 0.0)
             buying_power = float(account.get("buying_power") or equity)
-            planned_trades = self._plan_trades(signals, positions, equity, buying_power, regime, price_map)
+            planned_trades = self._plan_trades(signals, positions, equity, buying_power, regime, price_map, signal_threshold=effective_threshold)
             executed_trades = planned_trades
             if execute_trades and self.settings.auto_trade_enabled:
                 executed_trades = self._execute_trade_intents(planned_trades)

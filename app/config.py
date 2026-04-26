@@ -108,6 +108,11 @@ class Settings:
     backtest_trailing_stop_pct: float
     backtest_trailing_arm_pct: float
     backtest_take_profit_pct: float
+    backtest_breakeven_arm_pct: float
+    backtest_breakeven_floor_pct: float
+    conviction_sizing_enabled: bool
+    conviction_sizing_min_scalar: float
+    conviction_sizing_max_scalar: float
     db_path: Path
 
     @property
@@ -167,5 +172,10 @@ def get_settings() -> Settings:
         backtest_trailing_stop_pct=_env_float("BACKTEST_TRAILING_STOP_PCT", 0.06),
         backtest_trailing_arm_pct=_env_float("BACKTEST_TRAILING_ARM_PCT", 0.00),
         backtest_take_profit_pct=_env_float("BACKTEST_TAKE_PROFIT_PCT", 0.14),
+        backtest_breakeven_arm_pct=_env_float_clamp("BACKTEST_BREAKEVEN_ARM_PCT", 0.03, 0.0, 0.20),
+        backtest_breakeven_floor_pct=_env_float_clamp("BACKTEST_BREAKEVEN_FLOOR_PCT", 0.005, 0.0, 0.05),
+        conviction_sizing_enabled=_env_bool("CONVICTION_SIZING_ENABLED", True),
+        conviction_sizing_min_scalar=_env_float_clamp("CONVICTION_SIZING_MIN_SCALAR", 0.75, 0.10, 1.00),
+        conviction_sizing_max_scalar=_env_float_clamp("CONVICTION_SIZING_MAX_SCALAR", 1.25, 1.00, 2.00),
         db_path=db_path,
     )

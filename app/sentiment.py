@@ -83,6 +83,28 @@ PHRASE_WEIGHTS = {
     "initiates underperform": -1.2,
     "initiates sell": -1.0,
     "double downgrade": -1.4,
+    # M&A catalysts
+    "acquired by": 1.5,
+    "merger agreement": 1.4,
+    "takeover bid": 1.2,
+    "acquisition": 0.9,
+    "buyout": 1.0,
+    "going private": 0.8,
+    # Guidance withdrawal
+    "withdrew guidance": -1.6,
+    "withdraw guidance": -1.6,
+    "suspended guidance": -1.5,
+    "pulled guidance": -1.5,
+    "guidance withdrawn": -1.6,
+    # Above/below consensus language
+    "raised full-year guidance": 1.7,
+    "raised full year guidance": 1.7,
+    "above consensus": 1.3,
+    "ahead of estimates": 1.3,
+    "beats consensus": 1.5,
+    "below consensus": -1.3,
+    "below estimates": -1.3,
+    "missed consensus": -1.5,
 }
 
 TOKEN_WEIGHTS = {
@@ -129,6 +151,28 @@ TOKEN_WEIGHTS = {
     "decline": -0.55,
     "pressure": -0.4,
     "downgrade": -0.6,
+}
+
+
+SOURCE_QUALITY_MULTIPLIERS: dict[str, float] = {
+    # Tier 1: wire services and major financial media (1.4×)
+    "reuters": 1.4,
+    "bloomberg": 1.4,
+    "associated press": 1.4,
+    "ap": 1.4,
+    "dow jones": 1.4,
+    "the wall street journal": 1.4,
+    "wall street journal": 1.4,
+    "financial times": 1.4,
+    # Tier 2: established financial outlets (1.2×)
+    "barron's": 1.2,
+    "marketwatch": 1.2,
+    "cnbc": 1.2,
+    "benzinga": 1.1,
+    "the street": 1.1,
+    # Tier 3: opinion/lower-signal sources (sub-1×)
+    "seeking alpha": 0.75,
+    "stocktwits": 0.70,
 }
 
 
@@ -191,8 +235,10 @@ def aggregate_news_sentiment(items: list[NewsItem]) -> float:
         age_hours = _hours_old(item.published_at)
         # Exponential decay: ~37% weight at 5 days, ~14% at 10 days, floor at 5%
         recency_weight = max(0.05, math.exp(-age_hours / 120.0))
-        weighted_total += base_score * recency_weight
-        weight_sum += recency_weight
+        source_quality = SOURCE_QUALITY_MULTIPLIERS.get(item.source.lower().strip(), 1.0)
+        effective_weight = recency_weight * source_quality
+        weighted_total += base_score * effective_weight
+        weight_sum += effective_weight
     if weight_sum == 0:
         return 0.0
     return clamp(weighted_total / weight_sum)

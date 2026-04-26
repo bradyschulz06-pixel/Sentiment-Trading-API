@@ -113,3 +113,80 @@ def test_price_target_cut_scores_negative() -> None:
 def test_double_downgrade_scores_negative() -> None:
     score = score_text("Analyst double downgrade, price target reduced to street low.")
     assert score < 0.0
+
+
+# --- M&A and guidance vocabulary tests ---
+
+def test_acquired_by_scores_positive() -> None:
+    score = score_text("Company will be acquired by strategic buyer at significant premium.")
+    assert score > 0.2
+
+
+def test_merger_agreement_scores_positive() -> None:
+    score = score_text("Entered merger agreement valued at $12 billion with industry leader.")
+    assert score > 0.2
+
+
+def test_withdrew_guidance_scores_strongly_negative() -> None:
+    score = score_text("Management withdrew guidance citing deteriorating macro conditions.")
+    assert score < -0.3
+
+
+def test_suspended_guidance_scores_negative() -> None:
+    score = score_text("Board suspended guidance due to market uncertainty.")
+    assert score < 0.0
+
+
+def test_above_consensus_scores_positive() -> None:
+    score = score_text("Results came in above consensus estimates for the quarter.")
+    assert score > 0.0
+
+
+def test_below_estimates_scores_negative() -> None:
+    score = score_text("Revenue below estimates for the third consecutive quarter.")
+    assert score < 0.0
+
+
+# --- news source quality weighting tests ---
+
+def _sourced_item(headline: str, source: str) -> NewsItem:
+    return NewsItem(
+        symbol="TEST",
+        headline=headline,
+        summary="",
+        content="",
+        source=source,
+        url="https://example.com",
+        published_at="2099-01-01T00:00:00+00:00",
+        sentiment=0.0,
+    )
+
+
+def test_reuters_outweighs_seeking_alpha_same_headline() -> None:
+    # A single-item aggregate always equals the item score regardless of multiplier.
+    # Mix a positive high-quality source with a negative neutral-source to see the quality effect.
+    positive = "Company beat expectations and raised guidance significantly."
+    negative = "Company missed expectations and cut guidance."
+    reuters_mix = aggregate_news_sentiment([
+        _sourced_item(positive, "reuters"),
+        _sourced_item(negative, "test"),
+    ])
+    sa_mix = aggregate_news_sentiment([
+        _sourced_item(positive, "seeking alpha"),
+        _sourced_item(negative, "test"),
+    ])
+    assert reuters_mix > sa_mix
+
+
+def test_unknown_source_uses_neutral_multiplier() -> None:
+    headline = "Company beat expectations and raised guidance."
+    unknown_score = aggregate_news_sentiment([_sourced_item(headline, "some_unknown_blog")])
+    neutral_score = aggregate_news_sentiment([_sourced_item(headline, "test")])
+    assert abs(unknown_score - neutral_score) < 1e-6
+
+
+def test_source_matching_is_case_insensitive() -> None:
+    headline = "Company beat expectations and raised guidance."
+    lower_score = aggregate_news_sentiment([_sourced_item(headline, "reuters")])
+    upper_score = aggregate_news_sentiment([_sourced_item(headline, "Reuters")])
+    assert abs(lower_score - upper_score) < 1e-6
