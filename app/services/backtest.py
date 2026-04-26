@@ -191,6 +191,7 @@ def simulate_backtest(
     take_profit_pct: float | None = None,
     breakeven_arm_pct: float | None = None,
     breakeven_floor_pct: float | None = None,
+    reentry_cooldown_days: int | None = None,
 ) -> BacktestResult:
     universe_preset = normalize_universe_preset(universe_preset or settings.universe_preset)
     universe_meta = get_universe_presets()[universe_preset]
@@ -209,6 +210,7 @@ def simulate_backtest(
     take_profit_pct = settings.backtest_take_profit_pct if take_profit_pct is None else max(0.01, take_profit_pct)
     breakeven_arm_pct = settings.backtest_breakeven_arm_pct if breakeven_arm_pct is None else max(0.0, breakeven_arm_pct)
     breakeven_floor_pct = settings.backtest_breakeven_floor_pct if breakeven_floor_pct is None else max(0.0, breakeven_floor_pct)
+    reentry_cooldown_days = settings.backtest_reentry_cooldown_days if reentry_cooldown_days is None else max(0, reentry_cooldown_days)
     min_hold_days = min(min_hold_days, max_hold_days)
 
     benchmark_bars = price_map.get(benchmark_symbol, [])
@@ -224,6 +226,7 @@ def simulate_backtest(
     benchmark_lookup = bar_lookup[benchmark_symbol]
 
     open_positions: dict[str, _OpenPosition] = {}
+    _stop_cooldown: dict[str, str] = {}
     closed_trades: list[BacktestTrade] = []
     daily_points: list[BacktestPoint] = []
     regime_counts = {"supportive": 0, "cautious": 0, "risk_off": 0, "inactive": 0}
@@ -333,6 +336,9 @@ def simulate_backtest(
                         )
                     )
                     del open_positions[symbol]
+                    if reentry_cooldown_days > 0 and exit_reason in {"Hard stop hit.", "Trailing stop hit."}:
+                        next_idx = date_index[current_date] + reentry_cooldown_days
+                        _stop_cooldown[symbol] = ordered_dates[next_idx] if next_idx < len(ordered_dates) else ordered_dates[-1]
                 continue
 
             if signal.decision == "buy":
@@ -348,6 +354,8 @@ def simulate_backtest(
             if open_slots <= 0:
                 break
             if signal.symbol in open_positions:
+                continue
+            if _stop_cooldown.get(signal.symbol, "") > current_date:
                 continue
             raw_price = current_prices.get(signal.symbol, signal.price)
             entry_price = _apply_slippage(raw_price, "buy", slippage_bps)

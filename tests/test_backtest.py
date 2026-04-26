@@ -49,6 +49,7 @@ def _settings() -> Settings:
         backtest_take_profit_pct=0.14,
         backtest_breakeven_arm_pct=0.03,
         backtest_breakeven_floor_pct=0.005,
+        backtest_reentry_cooldown_days=3,
         conviction_sizing_enabled=True,
         conviction_sizing_min_scalar=0.75,
         conviction_sizing_max_scalar=1.25,
@@ -246,3 +247,56 @@ def test_conviction_sizing_disabled_gives_flat_allocation() -> None:
         else:
             s = 1.0
         assert s == 1.0
+
+
+# --- re-entry cooldown tests ---
+
+def _make_price_map_with_stop_and_recovery() -> dict:
+    """AAA drops sharply (triggers -8% hard stop) then recovers; SPY trends up."""
+    aaa_closes = []
+    price = 100.0
+    for i in range(180):
+        if i < 90:
+            price *= 0.985 if i % 4 == 3 else 1.007   # uptrend → entry
+        elif 90 <= i < 95:
+            price *= 0.975                              # sharp drop → hard stop triggered
+        else:
+            price *= 0.985 if i % 4 == 3 else 1.007   # recovery → would re-enter
+        aaa_closes.append(price)
+    spy_closes = []
+    price = 400.0
+    for i in range(180):
+        price *= 0.985 if i % 4 == 3 else 1.005
+        spy_closes.append(price)
+    return {
+        "AAA": _bars("AAA", aaa_closes),
+        "SPY": _bars("SPY", spy_closes),
+    }
+
+
+def test_reentry_cooldown_blocks_immediate_reentry() -> None:
+    settings = _settings()
+    price_map = _make_price_map_with_stop_and_recovery()
+    result_with_cooldown = simulate_backtest(
+        settings, price_map, {}, "SPY", 100, 100_000.0,
+        reentry_cooldown_days=3,
+    )
+    result_no_cooldown = simulate_backtest(
+        settings, price_map, {}, "SPY", 100, 100_000.0,
+        reentry_cooldown_days=0,
+    )
+    # With cooldown, re-entries after a hard stop are suppressed for 3 days.
+    # No cooldown should allow more (or equal) total trades.
+    assert result_no_cooldown.total_trades >= result_with_cooldown.total_trades
+
+
+def test_reentry_cooldown_zero_allows_immediate_reentry() -> None:
+    settings = _settings()
+    price_map = _make_price_map_with_stop_and_recovery()
+    result = simulate_backtest(
+        settings, price_map, {}, "SPY", 100, 100_000.0,
+        reentry_cooldown_days=0,
+    )
+    # With 0-day cooldown the backtest engine must still produce valid output.
+    assert result.status == "ok"
+    assert result.ending_equity > 0

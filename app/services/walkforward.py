@@ -127,6 +127,7 @@ def _build_window_results(
                 benchmark_return_pct=result.benchmark_return_pct,
                 outperformance_pct=result.outperformance_pct,
                 max_drawdown_pct=result.max_drawdown_pct,
+                sharpe_ratio=result.sharpe_ratio,
                 total_trades=result.total_trades,
             )
         )
@@ -153,6 +154,8 @@ def _candidate_from_windows(
     outperformance_values = [w.outperformance_pct for w in window_results]
     return_values = [w.total_return_pct for w in window_results]
     drawdown_values = [abs(w.max_drawdown_pct) for w in window_results]
+    sharpe_values = [w.sharpe_ratio for w in window_results]
+    average_sharpe = round(mean(sharpe_values), 4)
     return WalkForwardCandidateResult(
         label=label,
         universe_preset=universe_preset,
@@ -163,6 +166,7 @@ def _candidate_from_windows(
         factor_sentiment_weight=round(factor_sentiment_weight, 4),
         factor_earnings_weight=round(factor_earnings_weight, 4),
         stability_score=round(_stability_score(window_results), 4),
+        average_sharpe_ratio=average_sharpe,
         average_return_pct=round(mean(return_values), 4),
         average_outperformance_pct=round(mean(outperformance_values), 4),
         worst_outperformance_pct=round(min(outperformance_values), 4),
@@ -259,6 +263,7 @@ class WalkForwardService:
 
         stage1_candidates.sort(
             key=lambda item: (
+                item.average_sharpe_ratio,
                 item.stability_score,
                 item.benchmark_win_ratio,
                 item.average_outperformance_pct,
@@ -312,6 +317,7 @@ class WalkForwardService:
         all_candidates = stage1_candidates + stage2_candidates
         all_candidates.sort(
             key=lambda item: (
+                item.average_sharpe_ratio,
                 item.stability_score,
                 item.benchmark_win_ratio,
                 item.average_outperformance_pct,

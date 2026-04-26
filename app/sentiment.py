@@ -233,12 +233,15 @@ def aggregate_news_sentiment(items: list[NewsItem]) -> float:
     for item in items:
         base_score = item.sentiment if item.sentiment else score_text(f"{item.headline}. {item.summary}. {item.content}")
         age_hours = _hours_old(item.published_at)
-        # Exponential decay: ~37% weight at 5 days, ~14% at 10 days, floor at 5%
-        recency_weight = max(0.05, math.exp(-age_hours / 120.0))
+        # Exponential decay: ~37% weight at 5 days, ~14% at 10 days, floor at 1%
+        recency_weight = max(0.01, math.exp(-age_hours / 120.0))
         source_quality = SOURCE_QUALITY_MULTIPLIERS.get(item.source.lower().strip(), 1.0)
         effective_weight = recency_weight * source_quality
         weighted_total += base_score * effective_weight
         weight_sum += effective_weight
     if weight_sum == 0:
         return 0.0
-    return clamp(weighted_total / weight_sum)
+    aggregate = clamp(weighted_total / weight_sum)
+    if len(items) == 1:
+        aggregate *= 0.80
+    return aggregate

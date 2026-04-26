@@ -49,6 +49,7 @@ def _settings() -> Settings:
         backtest_take_profit_pct=0.14,
         backtest_breakeven_arm_pct=0.03,
         backtest_breakeven_floor_pct=0.005,
+        backtest_reentry_cooldown_days=3,
         conviction_sizing_enabled=True,
         conviction_sizing_min_scalar=0.75,
         conviction_sizing_max_scalar=1.25,

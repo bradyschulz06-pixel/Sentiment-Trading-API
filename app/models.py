@@ -165,6 +165,7 @@ class WalkForwardWindowResult:
     benchmark_return_pct: float
     outperformance_pct: float
     max_drawdown_pct: float
+    sharpe_ratio: float
     total_trades: int
 
 
@@ -179,6 +180,7 @@ class WalkForwardCandidateResult:
     factor_sentiment_weight: float
     factor_earnings_weight: float
     stability_score: float
+    average_sharpe_ratio: float
     average_return_pct: float
     average_outperformance_pct: float
     worst_outperformance_pct: float

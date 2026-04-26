@@ -190,3 +190,35 @@ def test_source_matching_is_case_insensitive() -> None:
     lower_score = aggregate_news_sentiment([_sourced_item(headline, "reuters")])
     upper_score = aggregate_news_sentiment([_sourced_item(headline, "Reuters")])
     assert abs(lower_score - upper_score) < 1e-6
+
+
+# --- stale floor and thin-coverage discount tests ---
+
+def test_single_article_gets_thin_coverage_discount() -> None:
+    headline = "Company beat expectations and raised guidance."
+    raw = score_text(headline)
+    single = aggregate_news_sentiment([_item(headline, published_at="2099-01-01T00:00:00+00:00")])
+    # Single-item aggregate must be strictly less than the raw score (20% haircut applied).
+    assert single < raw
+    assert abs(single - raw * 0.80) < 0.01
+
+
+def test_two_articles_no_thin_coverage_discount() -> None:
+    headline = "Company beat expectations and raised guidance."
+    one = aggregate_news_sentiment([_item(headline, published_at="2099-01-01T00:00:00+00:00")])
+    two = aggregate_news_sentiment([
+        _item(headline, published_at="2099-01-01T00:00:00+00:00"),
+        _item(headline, published_at="2099-01-01T00:00:00+00:00"),
+    ])
+    # Two agreeing articles → no haircut → aggregate higher than the single-item aggregate.
+    assert two > one
+
+
+def test_stale_news_does_not_dominate_fresh_news() -> None:
+    # With 1% floor, a very old article contributes ~1% weight vs a fresh item's ~100%.
+    # A fresh positive + very stale negative should still net strongly positive.
+    fresh_positive = _item("Company beat expectations and raised guidance.", published_at="2099-01-01T00:00:00+00:00")
+    stale_negative = _item("Company cut guidance and missed expectations.", published_at="2020-01-01T00:00:00+00:00")
+    combined = aggregate_news_sentiment([fresh_positive, stale_negative])
+    # With 1% floor (vs old 5% floor), stale negative barely influences the result.
+    assert combined > 0.0

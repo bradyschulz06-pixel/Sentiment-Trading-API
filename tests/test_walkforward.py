@@ -50,6 +50,7 @@ def _settings() -> Settings:
         backtest_take_profit_pct=0.14,
         backtest_breakeven_arm_pct=0.03,
         backtest_breakeven_floor_pct=0.005,
+        backtest_reentry_cooldown_days=3,
         conviction_sizing_enabled=True,
         conviction_sizing_min_scalar=0.75,
         conviction_sizing_max_scalar=1.25,
@@ -172,3 +173,31 @@ def test_walkforward_result_includes_trailing_arm_pct_and_max_hold_days(monkeypa
     # Stage-2 candidates must also be present in the candidates list
     stage2 = [c for c in result.candidates if "arm" in c.label]
     assert len(stage2) > 0, "Stage-2 candidates should appear in results"
+
+
+def test_walkforward_candidate_exposes_average_sharpe_ratio(monkeypatch) -> None:
+    service = WalkForwardService(_settings())
+    monkeypatch.setattr(
+        service.backtests,
+        "load_market_data",
+        lambda symbols, fetch_days: ({symbol: [] for symbol in symbols}, {symbol: [] for symbol in symbols}),
+    )
+
+    def fake_simulate_backtest(*args, **kwargs):
+        return _fake_backtest_result(
+            universe_preset=kwargs["universe_preset"],
+            threshold=kwargs["signal_threshold"],
+            momentum_weight=kwargs["factor_momentum_weight"],
+            sentiment_weight=kwargs["factor_sentiment_weight"],
+            earnings_weight=kwargs["factor_earnings_weight"],
+            period_days=kwargs["period_days"],
+        )
+
+    monkeypatch.setattr(walkforward_module, "simulate_backtest", fake_simulate_backtest)
+
+    result = service.run(windows=[60, 90], thresholds=[0.32], starting_capital=100_000.0)
+
+    assert result.best_candidate is not None
+    assert hasattr(result.best_candidate, "average_sharpe_ratio")
+    assert isinstance(result.best_candidate.average_sharpe_ratio, float)
+    assert result.best_candidate.average_sharpe_ratio > 0.0

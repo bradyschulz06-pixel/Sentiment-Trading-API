@@ -273,3 +273,84 @@ def test_rsi_overbought_exit_does_not_trigger_on_unprofitable_position() -> None
     )
     # unrealized_plpc < 0.05, so RSI overbought exit should NOT fire
     assert signal.decision != "sell" or "overbought" not in signal.rationale.lower()
+
+
+# --- factor alignment bonus and divergence penalty tests ---
+
+def test_aligned_factors_boost_composite() -> None:
+    bars = _realistic_uptrend_bars(n=80)
+    # Strongly positive earnings aligns with the uptrend momentum
+    bundle = EarningsBundle(symbol="TEST", reported_date="2026-01-01", surprise_pct=18.0)
+    # Positive news to ensure sentiment_score > 0.20
+    news = [
+        NewsItem(
+            symbol="TEST",
+            headline="Company beat expectations and raised full-year guidance significantly.",
+            summary="",
+            content="",
+            source="reuters",
+            url="",
+            published_at="2099-01-01T00:00:00+00:00",
+            sentiment=0.0,
+        ),
+        NewsItem(
+            symbol="TEST",
+            headline="Company above consensus estimates and raised guidance on strong demand.",
+            summary="",
+            content="",
+            source="bloomberg",
+            url="",
+            published_at="2099-01-01T00:00:00+00:00",
+            sentiment=0.0,
+        ),
+    ]
+    signal = build_signal(
+        symbol="TEST",
+        bars=bars,
+        news_items=news,
+        bundle=bundle,
+        threshold=0.20,
+        stop_loss_pct=0.08,
+        upcoming_earnings_buffer_days=0,
+        today=date(2026, 1, 2),  # day after report → recency_decay ≈ 1.0 → earnings_score > 0.20
+    )
+    # Alignment bonus fires when all three > 0.20; rationale must mention it
+    assert "all three factors independently confirm" in signal.rationale
+
+
+def test_divergent_momentum_sentiment_reduces_composite() -> None:
+    bars = _realistic_uptrend_bars(n=80)
+    # Strongly negative news creates a momentum–sentiment divergence
+    negative_news = [
+        NewsItem(
+            symbol="TEST",
+            headline="Company withdrew guidance and missed consensus estimates badly.",
+            summary="",
+            content="",
+            source="reuters",
+            url="",
+            published_at="2099-01-01T00:00:00+00:00",
+            sentiment=0.0,
+        ),
+        NewsItem(
+            symbol="TEST",
+            headline="Management suspended guidance citing severe macro headwinds.",
+            summary="",
+            content="",
+            source="bloomberg",
+            url="",
+            published_at="2099-01-01T00:00:00+00:00",
+            sentiment=0.0,
+        ),
+    ]
+    signal = build_signal(
+        symbol="TEST",
+        bars=bars,
+        news_items=negative_news,
+        bundle=None,
+        threshold=0.10,
+        stop_loss_pct=0.08,
+        upcoming_earnings_buffer_days=0,
+    )
+    # Divergence penalty fires when momentum > 0.20 and sentiment < -0.20
+    assert "diverging" in signal.rationale

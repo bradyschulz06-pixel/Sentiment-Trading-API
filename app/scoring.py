@@ -6,6 +6,10 @@ import math
 from app.models import EarningsBundle, NewsItem, PositionSnapshot, PriceBar, SignalScore
 from app.sentiment import aggregate_news_sentiment, clamp
 
+_FACTOR_ALIGN_THRESHOLD = 0.20
+_FACTOR_ALIGN_BONUS = 1.10
+_FACTOR_ALIGN_PENALTY = 0.90
+
 
 def _rolling_annualized_vol(closes: list[float], window: int) -> float:
     """Annualized daily volatility from the last `window` daily returns."""
@@ -252,6 +256,22 @@ def build_signal(
     below_sma200 = sma200 is not None and current_price < sma200
     if below_sma200:
         composite = clamp(composite * 0.90)
+    # Factor alignment: bonus when all three factors independently confirm the signal;
+    # penalty when momentum and sentiment point in opposite directions.
+    _all_aligned = (
+        momentum_score > _FACTOR_ALIGN_THRESHOLD
+        and sentiment_score > _FACTOR_ALIGN_THRESHOLD
+        and earnings_score > _FACTOR_ALIGN_THRESHOLD
+    )
+    _momo_sentiment_diverge = (
+        momentum_score > _FACTOR_ALIGN_THRESHOLD and sentiment_score < -_FACTOR_ALIGN_THRESHOLD
+    ) or (
+        sentiment_score > _FACTOR_ALIGN_THRESHOLD and momentum_score < -_FACTOR_ALIGN_THRESHOLD
+    )
+    if _all_aligned:
+        composite = clamp(composite * _FACTOR_ALIGN_BONUS)
+    elif _momo_sentiment_diverge:
+        composite = clamp(composite * _FACTOR_ALIGN_PENALTY)
     stop_price = current_price * (1.0 - stop_loss_pct)
     # Target at 1.75× the stop distance gives a ~1.75:1 reward-to-risk ratio,
     # consistent with the default 14% take-profit in the backtest engine.
@@ -284,6 +304,10 @@ def build_signal(
         reasons.append(f"RSI is elevated ({rsi:.0f}) — waiting for momentum to cool before entry")
     elif rsi < 35:
         reasons.append(f"RSI shows short-term weakness ({rsi:.0f})")
+    if _all_aligned:
+        reasons.append("all three factors independently confirm the signal")
+    elif _momo_sentiment_diverge:
+        reasons.append("momentum and news sentiment are diverging — conviction reduced")
     if vol_ratio >= 1.5:
         reasons.append("volume is above its recent average, confirming the move")
     elif vol_ratio < 0.6:
