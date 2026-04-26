@@ -32,6 +32,31 @@ def _compute_atr(bars: list[PriceBar], period: int = 14) -> float:
     return sum(true_ranges[-period:]) / period
 
 
+def _compute_rsi(closes: list[float], period: int = 14) -> float:
+    """RSI using Wilder smoothing. Returns 50 (neutral) when there is not enough data."""
+    if len(closes) < period + 1:
+        return 50.0
+    changes = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+    gains = [max(0.0, c) for c in changes[:period]]
+    losses = [max(0.0, -c) for c in changes[:period]]
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+    for change in changes[period:]:
+        avg_gain = (avg_gain * (period - 1) + max(0.0, change)) / period
+        avg_loss = (avg_loss * (period - 1) + max(0.0, -change)) / period
+    if avg_loss == 0:
+        return 100.0 if avg_gain > 0 else 50.0
+    return 100.0 - (100.0 / (1.0 + avg_gain / avg_loss))
+
+
+def _volume_ratio(bars: list[PriceBar], period: int = 20) -> float:
+    """Latest bar volume relative to the prior `period`-bar average. Returns 1.0 when insufficient data."""
+    if len(bars) < period + 1:
+        return 1.0
+    avg_vol = sum(bar.volume for bar in bars[-(period + 1):-1]) / period
+    return bars[-1].volume / avg_vol if avg_vol > 0 else 1.0
+
+
 def _parse_iso_date(value: str | None) -> date | None:
     if not value:
         return None
@@ -111,12 +136,14 @@ def compute_momentum_score(bars: list[PriceBar]) -> tuple[float, dict[str, float
     normalized_21 = clamp(ret21 / (vol_21 * math.sqrt(21 / 252)))
     normalized_63 = clamp(ret63 / (vol_63 * math.sqrt(63 / 252)))
     score = clamp((normalized_21 * 0.45) + (normalized_63 * 0.35) + (trend * 0.20))
+    rsi = _compute_rsi(closes)
     metrics = {
         "current": current,
         "sma20": sma20,
         "sma50": sma50,
         "ret21": ret21,
         "ret63": ret63,
+        "rsi": rsi,
     }
     return score, metrics
 
@@ -126,7 +153,7 @@ def compute_earnings_score(bundle: EarningsBundle | None, today: date, buffer_da
         return 0.0, False
     reported_date = _parse_iso_date(bundle.reported_date)
     days_since_report = (today - reported_date).days if reported_date else 45
-    recency_decay = math.exp(-(max(days_since_report, 0) / 75.0))
+    recency_decay = math.exp(-(max(days_since_report, 0) / 55.0))
     surprise_component = clamp((bundle.surprise_pct or 0.0) / 15.0)
     score = clamp(((surprise_component * 0.70) + (bundle.transcript_sentiment * 0.30)) * recency_decay)
     blocked_for_earnings = False
@@ -171,9 +198,12 @@ def build_signal(
         + (earnings_score * earnings_weight)
     )
     current_price = metrics["current"]
+    rsi = metrics.get("rsi", 50.0)
+    vol_ratio = _volume_ratio(bars)
     stop_price = current_price * (1.0 - stop_loss_pct)
-    atr = _compute_atr(bars)
-    target_price = current_price + (atr * 3.0)
+    # Target at 1.75× the stop distance gives a ~1.75:1 reward-to-risk ratio,
+    # consistent with the default 14% take-profit in the backtest engine.
+    target_price = current_price * (1.0 + stop_loss_pct * 1.75)
     if position is not None and position.avg_entry_price > 0:
         stop_price = position.avg_entry_price * (1.0 - stop_loss_pct)
     reasons: list[str] = []
@@ -192,6 +222,14 @@ def build_signal(
         reasons.append("earnings read-through is weak")
     if blocked_for_earnings:
         reasons.append("an earnings report is too close to open a new swing trade safely")
+    if rsi > 75:
+        reasons.append(f"RSI is elevated ({rsi:.0f}) — waiting for momentum to cool before entry")
+    elif rsi < 35:
+        reasons.append(f"RSI shows short-term weakness ({rsi:.0f})")
+    if vol_ratio >= 1.5:
+        reasons.append("volume is above its recent average, confirming the move")
+    elif vol_ratio < 0.6:
+        reasons.append("recent volume is below average — treat with caution")
     decision = "watch"
     if position is not None:
         if current_price <= stop_price or composite < 0.05 or momentum_score < -0.20:
@@ -201,7 +239,10 @@ def build_signal(
             decision = "hold"
             reasons.append("existing position still fits the model")
     elif composite >= threshold and momentum_score > 0 and trend_ok and not blocked_for_earnings:
-        decision = "buy"
+        if rsi > 75.0:
+            decision = "watch"
+        else:
+            decision = "buy"
     headline = news_items[0].headline if news_items else ""
     return SignalScore(
         symbol=symbol,

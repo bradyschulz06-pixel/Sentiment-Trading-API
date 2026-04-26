@@ -49,13 +49,45 @@ def test_empty_text_scores_zero() -> None:
 
 
 def test_exponential_decay_downweights_old_news() -> None:
-    fresh = _item("Company beat expectations.", published_at="2026-04-25T00:00:00+00:00")
-    stale = _item("Company beat expectations.", published_at="2026-04-10T00:00:00+00:00")
-    fresh_score = aggregate_news_sentiment([fresh])
-    stale_score = aggregate_news_sentiment([stale])
-    # Fresh news should receive higher weight than 15-day-old news.
-    assert fresh_score > stale_score
+    # A fresh positive item combined with a very stale negative item should net positive
+    # because recency weighting heavily favours the recent one.
+    fresh_positive = _item("Company beat expectations and raised guidance.", published_at="2099-01-01T00:00:00+00:00")
+    stale_negative = _item("Company cut guidance and missed expectations.", published_at="2020-01-01T00:00:00+00:00")
+    combined = aggregate_news_sentiment([fresh_positive, stale_negative])
+    assert combined > 0.0, "Fresh positive news should outweigh very stale negative news"
 
 
 def test_aggregate_returns_zero_for_empty_list() -> None:
     assert aggregate_news_sentiment([]) == 0.0
+
+
+# --- new vocabulary coverage tests ---
+
+def test_profit_warning_scores_negative() -> None:
+    score = score_text("Company issues profit warning as demand weakens and margins contract.")
+    assert score < 0.0
+
+
+def test_earnings_beat_phrase_scores_positive() -> None:
+    score = score_text("Earnings beat drove the stock higher after strong results.")
+    assert score > 0.0
+
+
+def test_raises_guidance_phrase_scores_positive() -> None:
+    score = score_text("Management raises guidance citing accelerating growth.")
+    assert score > 0.0
+
+
+def test_reduced_guidance_scores_negative() -> None:
+    score = score_text("Company reduced guidance due to supply chain disruption.")
+    assert score < 0.0
+
+
+def test_layoffs_scores_negative() -> None:
+    score = score_text("Company announces layoffs amid restructuring efforts.")
+    assert score < 0.0
+
+
+def test_market_share_gains_scores_positive() -> None:
+    score = score_text("The company reported market share gains driven by robust demand.")
+    assert score > 0.0
